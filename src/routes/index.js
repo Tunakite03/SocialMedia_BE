@@ -1,0 +1,10 @@
+const express = require('express');
+const router = express.Router();
+router.use('/auth', require('./authRoutes'));
+router.use('/users', require('./userRoutes'));
+router.use('/posts', require('./postRoutes'));
+router.use('/comments', require('./commentRoutes'));
+router.use('/messages', require('./messageRoutes'));
+router.use('/notifications', require('./notificationRoutes'));
+router.use('/calls', require('./callRoutes'));
+module.exports = router;

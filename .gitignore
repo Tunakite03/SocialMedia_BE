@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.local
+.env.production
+logs/
+*.log
+npm-debug.log*
+uploads/
+.DS_Store
+.vscode/
+.idea/
+coverage/
+.nyc_output/
+dist/
+build/
+*.tgz
+*.tar.gz
