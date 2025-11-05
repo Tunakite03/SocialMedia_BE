@@ -9,9 +9,7 @@ services:
         - key: NODE_ENV
           value: production
         - key: DATABASE_URL
-          fromDatabase:
-             name: otakomi-postgres
-             property: connectionString
+          value: postgresql://neondb_owner:npg_YjixZLn2kWE4@ep-billowing-shape-a15hjn0l-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
         - key: JWT_SECRET
           generateValue: true
         - key: PORT
