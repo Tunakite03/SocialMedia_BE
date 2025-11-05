@@ -42,4 +42,3 @@ databases:
    - name: otakomi-postgres
      plan: standard
      databaseName: otakomi_db
-     user: postgres
