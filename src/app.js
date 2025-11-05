@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -17,49 +18,26 @@ const { testCloudinaryConnection } = require('./config/cloudinary');
 const app = express();
 const server = createServer(app);
 
-// Socket.IO setup
+// ===== Socket.IO allowed origins =====
 const allowedOrigins = process.env.ALLOWED_ORIGINS
    ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
    : ['http://localhost:3000', 'http://localhost:3001', 'https://otakomi.netlify.app'];
 
 logger.info('Allowed Origins:', allowedOrigins);
 
-const io = new Server(server, {
-   cors: {
-      origin: allowedOrigins,
-      methods: ['GET', 'POST'],
-      credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization'],
-   },
-});
+// ===== Trust proxy for Render/Netlify =====
+app.set('trust proxy', 1);
 
-// Rate limiting
-const limiter = rateLimit({
-   windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000, // 15 minutes
-   max: process.env.RATE_LIMIT_MAX || 100,
-   message: 'Too many requests from this IP, please try again later.',
-});
-
-// Middleware
-app.use(helmet());
-app.use(compression());
-app.use(morgan('combined', { stream: logger.stream }));
-app.use(limiter);
-
-// CORS configuration function
+// ===== CORS đặt lên đầu tiên =====
 const corsOptions = {
-   origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) {
+   origin(origin, callback) {
+      // Cho phép request không có Origin (curl, mobile app, health checks…)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
          return callback(null, true);
       }
-
-      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-         callback(null, true);
-      } else {
-         logger.warn(`CORS request blocked from origin: ${origin}`);
-         callback(new Error('Not allowed by CORS'));
-      }
+      logger.warn(`CORS request blocked from origin: ${origin}`);
+      return callback(new Error('Not allowed by CORS'));
    },
    credentials: true,
    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -68,22 +46,53 @@ const corsOptions = {
    optionsSuccessStatus: 200,
 };
 
-// Apply CORS middleware
+// Áp dụng CORS càng sớm càng tốt
 app.use(cors(corsOptions));
-
-// Handle preflight requests (OPTIONS)
+// Handle preflight TOÀN CỤC trước mọi middleware khác
 app.options('*', cors(corsOptions));
 
+// (Tùy chọn) fail-safe: trả 200 thật nhanh cho OPTIONS, tránh dính các middleware khác
+app.use((req, res, next) => {
+   if (req.method === 'OPTIONS') return res.sendStatus(200);
+   return next();
+});
+
+// ===== Security/Compression/Logging =====
+app.use(helmet());
+app.use(compression());
+app.use(morgan('combined', { stream: logger.stream }));
+
+// ===== Rate limit SAU CORS và bỏ qua OPTIONS =====
+const limiter = rateLimit({
+   windowMs: (Number(process.env.RATE_LIMIT_WINDOW) || 15) * 60 * 1000, // default 15 phút
+   max: Number(process.env.RATE_LIMIT_MAX) || 100,
+   standardHeaders: true,
+   legacyHeaders: false,
+   skip: (req) => req.method === 'OPTIONS',
+   message: 'Too many requests from this IP, please try again later.',
+});
+app.use(limiter);
+
+// ===== Body parsers =====
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static files
+// ===== Static files =====
 app.use('/uploads', express.static('uploads'));
 
-// Make io accessible to routes
+// ===== Socket.IO init =====
+const io = new Server(server, {
+   cors: {
+      origin: allowedOrigins,
+      methods: ['GET', 'POST'],
+      credentials: true,
+      allowedHeaders: ['Content-Type', 'Authorization'],
+   },
+});
 app.set('socketio', io);
+socketHandler(io);
 
-// Health check
+// ===== Health check =====
 app.get('/health', (req, res) => {
    res.status(200).json({
       status: 'OK',
@@ -92,25 +101,18 @@ app.get('/health', (req, res) => {
    });
 });
 
-// API routes
+// ===== API routes =====
 app.use('/api/v1', require('./routes'));
 
-// Socket handling
-socketHandler(io);
-
-// Error handling middleware
+// ===== Errors =====
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 8080;
-
-// Test database connection
+// ===== DB & Cloudinary tests =====
 const testDatabaseConnection = async () => {
    try {
       await prisma.$connect();
       logger.info('Database connected successfully');
-
-      // Test a simple query
       const userCount = await prisma.user.count();
       logger.info(`Database status: ${userCount} users in database`);
    } catch (error) {
@@ -119,22 +121,21 @@ const testDatabaseConnection = async () => {
    }
 };
 
-// Test Cloudinary connection
 const testConnections = async () => {
    await testDatabaseConnection();
    await testCloudinaryConnection();
 };
 
+// ===== Start server =====
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, async () => {
    logger.info(`Server running on port ${PORT}`);
    logger.info(`Environment: ${process.env.NODE_ENV}`);
-   logger.info(`Socket.IO server ready`);
-
-   // Test connections
+   logger.info('Socket.IO server ready');
    await testConnections();
 });
 
-// Graceful shutdown
+// ===== Graceful shutdown =====
 process.on('SIGINT', async () => {
    logger.info('Shutting down server...');
    await prisma.$disconnect();
