@@ -12,6 +12,7 @@ const logger = require('./config/logger');
 const { errorHandler, notFound } = require('./middlewares/errorMiddleware');
 const socketHandler = require('./sockets/socketHandler');
 const prisma = require('./config/database');
+const { testCloudinaryConnection } = require('./config/cloudinary');
 
 const app = express();
 const server = createServer(app);
@@ -19,7 +20,7 @@ const server = createServer(app);
 // Socket.IO setup
 const allowedOrigins = process.env.ALLOWED_ORIGINS
    ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
-   : ['http://localhost:3000'];
+   : ['http://localhost:3000', 'http://localhost:3001', 'https://otakomi.netlify.app'];
 
 const io = new Server(server, {
    cors: {
@@ -116,13 +117,19 @@ const testDatabaseConnection = async () => {
    }
 };
 
+// Test Cloudinary connection
+const testConnections = async () => {
+   await testDatabaseConnection();
+   await testCloudinaryConnection();
+};
+
 server.listen(PORT, async () => {
    logger.info(`Server running on port ${PORT}`);
    logger.info(`Environment: ${process.env.NODE_ENV}`);
    logger.info(`Socket.IO server ready`);
 
-   // Test database connection
-   await testDatabaseConnection();
+   // Test connections
+   await testConnections();
 });
 
 // Graceful shutdown
