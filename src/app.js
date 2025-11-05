@@ -17,10 +17,16 @@ const app = express();
 const server = createServer(app);
 
 // Socket.IO setup
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+   ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
+   : ['http://localhost:3000'];
+
 const io = new Server(server, {
    cors: {
-      origin: process.env.ALLOWED_ORIGINS?.split(',') || 'http://localhost:3000',
+      origin: allowedOrigins,
       methods: ['GET', 'POST'],
+      credentials: true,
+      allowedHeaders: ['Content-Type', 'Authorization'],
    },
 });
 
@@ -36,10 +42,32 @@ app.use(helmet());
 app.use(compression());
 app.use(morgan('combined', { stream: logger.stream }));
 app.use(limiter);
+
+// Handle preflight requests for private network access (before CORS)
+app.use((req, res, next) => {
+   const origin = req.get('origin');
+   if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      res.header('Access-Control-Allow-Origin', origin || '*');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Private-Network', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+      if (req.method === 'OPTIONS') {
+         return res.status(200).send();
+      }
+   }
+   next();
+});
+
 app.use(
    cors({
-      origin: process.env.ALLOWED_ORIGINS?.split(',') || 'http://localhost:3000',
+      origin: allowedOrigins,
       credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+      preflightContinue: false,
+      optionsSuccessStatus: 200,
    })
 );
 
