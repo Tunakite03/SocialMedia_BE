@@ -19,19 +19,15 @@ const app = express();
 const server = createServer(app);
 
 // ===== Socket.IO allowed origins =====
-const allowedOrigins = process.env.ALLOWED_ORIGINS
+const allowedOrigins = process.env.NODE_ENV === 'production'
+   ? ['https://otakomi.netlify.app'] // Hardcoded for production
+   : process.env.ALLOWED_ORIGINS
    ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
    : ['http://localhost:3000', 'http://localhost:3001', 'https://otakomi.netlify.app'];
 
 logger.info('Environment ALLOWED_ORIGINS:', process.env.ALLOWED_ORIGINS);
-logger.info('Parsed Allowed Origins:', allowedOrigins);
-
-// Temporary: Also allow all origins for debugging
-const isProduction = process.env.NODE_ENV === 'production';
-if (isProduction) {
-   allowedOrigins.push('*'); // Temporary for debugging
-   logger.info('Production mode: temporarily allowing all origins for debugging');
-}
+logger.info('NODE_ENV:', process.env.NODE_ENV);
+logger.info('Final Allowed Origins:', allowedOrigins);
 
 // ===== Trust proxy for Render/Netlify =====
 app.set('trust proxy', 1);
@@ -40,18 +36,18 @@ app.set('trust proxy', 1);
 const corsOptions = {
    origin(origin, callback) {
       logger.info(`CORS request from origin: ${origin}`);
-      
+
       // Cho phép request không có Origin (curl, mobile app, health checks…)
       if (!origin) {
          logger.info('Request with no origin - allowing');
          return callback(null, true);
       }
-      
+
       if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
          logger.info(`Origin ${origin} is allowed`);
          return callback(null, true);
       }
-      
+
       logger.warn(`CORS request blocked from origin: ${origin}`);
       logger.warn(`Allowed origins: ${JSON.stringify(allowedOrigins)}`);
       return callback(new Error('Not allowed by CORS'));
@@ -100,7 +96,9 @@ app.use('/uploads', express.static('uploads'));
 // ===== Socket.IO init =====
 const io = new Server(server, {
    cors: {
-      origin: allowedOrigins,
+      origin: process.env.NODE_ENV === 'production' 
+         ? ['https://otakomi.netlify.app'] 
+         : allowedOrigins,
       methods: ['GET', 'POST'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization'],
