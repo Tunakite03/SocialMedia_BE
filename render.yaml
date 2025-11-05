@@ -41,6 +41,5 @@ services:
 databases:
    - name: otakomi-postgres
      plan: standard
-     version: 17
      databaseName: otakomi_db
      user: postgres
