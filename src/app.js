@@ -22,6 +22,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
    ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
    : ['http://localhost:3000', 'http://localhost:3001', 'https://otakomi.netlify.app'];
 
+logger.info('Allowed Origins:', allowedOrigins);
+
 const io = new Server(server, {
    cors: {
       origin: allowedOrigins,
@@ -44,33 +46,33 @@ app.use(compression());
 app.use(morgan('combined', { stream: logger.stream }));
 app.use(limiter);
 
-// Handle preflight requests for private network access (before CORS)
-app.use((req, res, next) => {
-   const origin = req.get('origin');
-   if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-      res.header('Access-Control-Allow-Origin', origin || '*');
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Private-Network', 'true');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-      if (req.method === 'OPTIONS') {
-         return res.status(200).send();
+// CORS configuration function
+const corsOptions = {
+   origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) {
+         return callback(null, true);
       }
-   }
-   next();
-});
 
-app.use(
-   cors({
-      origin: allowedOrigins,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
-      preflightContinue: false,
-      optionsSuccessStatus: 200,
-   })
-);
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+         callback(null, true);
+      } else {
+         logger.warn(`CORS request blocked from origin: ${origin}`);
+         callback(new Error('Not allowed by CORS'));
+      }
+   },
+   credentials: true,
+   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+   allowedHeaders: ['Content-Type', 'Authorization'],
+   preflightContinue: false,
+   optionsSuccessStatus: 200,
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests (OPTIONS)
+app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));

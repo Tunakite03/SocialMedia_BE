@@ -17,11 +17,17 @@ services:
         - key: SENTIMENT_SERVICE_URL
           value: https://otakomi-sentiment-service.onrender.com
         - key: ALLOWED_ORIGINS
-          value: https://otakomi.netlify.app/, http://localhost:3001, http://localhost:3000
+          value: https://otakomi.netlify.app,http://localhost:3001,http://localhost:3000
         - key: RATE_LIMIT_WINDOW
           value: 15
         - key: RATE_LIMIT_MAX
           value: 100
+        - key: CLOUDINARY_CLOUD_NAME
+          value: tunakite03
+        - key: CLOUDINARY_API_KEY
+          value: 689958954267986
+        - key: CLOUDINARY_API_SECRET
+          fromEnvName: CLOUDINARY_API_SECRET
 
    - type: web
      name: otakomi-sentiment-service
