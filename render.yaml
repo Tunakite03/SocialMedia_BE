@@ -37,8 +37,3 @@ services:
           value: 0.0.0.0
         - key: PORT
           value: 10000
-
-databases:
-   - name: otakomi-postgres
-     plan: free
-     databaseName: otakomi_db
