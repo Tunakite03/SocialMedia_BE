@@ -23,7 +23,15 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
    ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
    : ['http://localhost:3000', 'http://localhost:3001', 'https://otakomi.netlify.app'];
 
-logger.info('Allowed Origins:', allowedOrigins);
+logger.info('Environment ALLOWED_ORIGINS:', process.env.ALLOWED_ORIGINS);
+logger.info('Parsed Allowed Origins:', allowedOrigins);
+
+// Temporary: Also allow all origins for debugging
+const isProduction = process.env.NODE_ENV === 'production';
+if (isProduction) {
+   allowedOrigins.push('*'); // Temporary for debugging
+   logger.info('Production mode: temporarily allowing all origins for debugging');
+}
 
 // ===== Trust proxy for Render/Netlify =====
 app.set('trust proxy', 1);
@@ -31,12 +39,21 @@ app.set('trust proxy', 1);
 // ===== CORS đặt lên đầu tiên =====
 const corsOptions = {
    origin(origin, callback) {
+      logger.info(`CORS request from origin: ${origin}`);
+      
       // Cho phép request không có Origin (curl, mobile app, health checks…)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      if (!origin) {
+         logger.info('Request with no origin - allowing');
          return callback(null, true);
       }
+      
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+         logger.info(`Origin ${origin} is allowed`);
+         return callback(null, true);
+      }
+      
       logger.warn(`CORS request blocked from origin: ${origin}`);
+      logger.warn(`Allowed origins: ${JSON.stringify(allowedOrigins)}`);
       return callback(new Error('Not allowed by CORS'));
    },
    credentials: true,
