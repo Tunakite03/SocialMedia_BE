@@ -2,7 +2,7 @@ services:
    - type: web
      name: otakomi-backend
      runtime: node
-     plan: standard
+     plan: free
      buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy
      startCommand: npm start
      envVars:
@@ -28,7 +28,7 @@ services:
    - type: web
      name: otakomi-sentiment-service
      runtime: python
-     plan: standard
+     plan: free
      buildCommand: pip install -r sentiment-service/requirements.txt
      startCommand: cd sentiment-service && python -m uvicorn main:app --host 0.0.0.0 --port 10000
      healthCheckPath: /health
@@ -40,5 +40,5 @@ services:
 
 databases:
    - name: otakomi-postgres
-     plan: standard
+     plan: free
      databaseName: otakomi_db
