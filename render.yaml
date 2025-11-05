@@ -3,7 +3,7 @@ services:
      name: otakomi-backend
      runtime: node
      plan: standard
-     buildCommand: npm ci && npx prisma generate
+     buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy
      startCommand: npm start
      envVars:
         - key: NODE_ENV
@@ -29,8 +29,8 @@ services:
      name: otakomi-sentiment-service
      runtime: python
      plan: standard
-     buildCommand: pip install -r requirements.txt
-     startCommand: python -m uvicorn main:app --host 0.0.0.0 --port 10000
+     buildCommand: pip install -r sentiment-service/requirements.txt
+     startCommand: cd sentiment-service && python -m uvicorn main:app --host 0.0.0.0 --port 10000
      healthCheckPath: /health
      envVars:
         - key: HOST
