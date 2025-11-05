@@ -26,7 +26,7 @@ const jsonFormat = winston.format.combine(
 const logger = winston.createLogger({
    level: process.env.LOG_LEVEL || 'info',
    format: jsonFormat,
-   defaultMeta: { service: 'onway-backend' },
+   defaultMeta: { service: 'otakomi-backend' },
    transports: [
       // Log lỗi vào file riêng
       new winston.transports.File({

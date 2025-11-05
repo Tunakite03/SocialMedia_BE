@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="OnWay Sentiment Analysis API",
-    description="Real-time sentiment analysis service for OnWay social platform",
+    title="Otakomi Sentiment Analysis API",
+    description="Real-time sentiment analysis service for Otakomi social platform",
     version="1.0.0"
 )
 

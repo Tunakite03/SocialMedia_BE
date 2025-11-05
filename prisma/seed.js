@@ -10,10 +10,10 @@ async function main() {
    const hashedPassword = await bcrypt.hash('admin123', 12);
 
    const adminUser = await prisma.user.upsert({
-      where: { email: 'admin@onway.com' },
+      where: { email: 'admin@otakomi.com' },
       update: {},
       create: {
-         email: 'admin@onway.com',
+         email: 'admin@otakomi.com',
          username: 'admin',
          password: hashedPassword,
          displayName: 'Admin User',
@@ -80,7 +80,7 @@ async function main() {
    const posts = await prisma.post.createMany({
       data: [
          {
-            content: 'Welcome to OnWay! This is my first post on this amazing platform.',
+            content: 'Welcome to Otakomi! This is my first post on this amazing platform.',
             authorId: createdUsers[0].id,
             type: 'TEXT',
          },

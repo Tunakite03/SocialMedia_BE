@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# OnWay Sentiment Service Startup Script
+# Otakomi Sentiment Service Startup Script
 
-echo "🚀 Starting OnWay Sentiment Analysis Service..."
+echo "🚀 Starting Otakomi Sentiment Analysis Service..."
 
 # Check if Python 3.8+ is available
 if ! command -v python3 &> /dev/null; then

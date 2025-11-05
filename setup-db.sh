@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# OnWay Database Setup Script
+# Otakomi Database Setup Script
 
-echo "🐳 Setting up OnWay Database with Docker..."
+echo "🐳 Setting up Otakomi Database with Docker..."
 
 # Check if Docker is running
 if ! docker info >/dev/null 2>&1; then
@@ -28,7 +28,7 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=password123
 
 # pgAdmin Configuration
-PGADMIN_DEFAULT_EMAIL=admin@onway.com
+PGADMIN_DEFAULT_EMAIL=admin@otakomi.com
 PGADMIN_DEFAULT_PASSWORD=admin123
 EOF
     echo "✅ Database environment file created (.env.db)"
@@ -63,7 +63,7 @@ echo "   DATABASE_URL=\"postgresql://postgres:password123@localhost:5432/onway_d
 echo ""
 echo "🖥️  pgAdmin Web Interface:"
 echo "   URL: http://localhost:8080"
-echo "   Email: admin@onway.com"
+echo "   Email: admin@otakomi.com"
 echo "   Password: admin123"
 echo ""
 echo "📊 Redis Cache (optional):"

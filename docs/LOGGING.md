@@ -98,7 +98,7 @@ Error: Connection timeout
    "level": "info",
    "message": "User login attempt",
    "timestamp": "2024-11-03T14:30:45.123Z",
-   "service": "onway-backend",
+   "service": "otakomi-backend",
    "email": "user@example.com"
 }
 ```

@@ -1,7 +1,7 @@
 {
-   "name": "onway-backend",
+   "name": "otakomi-backend",
    "version": "1.0.0",
-   "description": "Backend for OnWay social platform with real-time features",
+   "description": "Backend for Otakomi social platform with real-time features",
    "main": "src/app.js",
    "scripts": {
       "start": "node src/app.js",
@@ -30,7 +30,7 @@
       "webrtc",
       "social-platform"
    ],
-   "author": "OnWay Team",
+   "author": "Otakomi Team",
    "license": "MIT",
    "dependencies": {
       "@prisma/client": "^5.7.1",

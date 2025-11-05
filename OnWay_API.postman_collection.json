@@ -1,8 +1,8 @@
 {
    "info": {
-      "_postman_id": "onway-api-collection",
-      "name": "OnWay API Collection",
-      "description": "Complete API collection for OnWay Backend with error handling and authentication",
+      "_postman_id": "otakomi-api-collection",
+      "name": "Otakomi API Collection",
+      "description": "Complete API collection for Otakomi Backend with error handling and authentication",
       "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
    },
    "auth": {

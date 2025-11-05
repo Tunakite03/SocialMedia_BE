@@ -43,7 +43,7 @@ case "$1" in
     ls -lh "$LOG_DIR"/*.log 2>/dev/null || echo "No log files found"
     ;;
   *)
-    echo "📝 OnWay Backend Log Viewer"
+    echo "📝 Otakomi Backend Log Viewer"
     echo "=================================================="
     echo "Usage: $0 [command]"
     echo ""

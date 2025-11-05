@@ -3,7 +3,7 @@ set -e
 
 # This script will be executed when the PostgreSQL container starts for the first time
 
-echo "🚀 Initializing OnWay Database..."
+echo "🚀 Initializing Otakomi Database..."
 
 # Create additional databases if needed
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL

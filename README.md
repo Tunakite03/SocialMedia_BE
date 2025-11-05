@@ -1,4 +1,4 @@
-# OnWay Backend
+# Otakomi Backend
 
 A comprehensive social media platform backend built with Node.js, Express, PostgreSQL, Socket.IO, and FastAPI for sentiment analysis.
 
@@ -189,14 +189,14 @@ docker-compose down
 
 ```bash
 # Build main application
-docker build -t onway-backend .
+docker build -t otakomi-backend .
 
 # Build sentiment service
-docker build -t onway-sentiment ./sentiment-service
+docker build -t otakomi-sentiment ./sentiment-service
 
 # Run with docker
-docker run -p 3000:3000 onway-backend
-docker run -p 8000:8000 onway-sentiment
+docker run -p 3000:3000 otakomi-backend
+docker run -p 8000:8000 otakomi-sentiment
 ```
 
 ## 🧪 Testing
