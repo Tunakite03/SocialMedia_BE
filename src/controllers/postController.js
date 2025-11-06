@@ -1,10 +1,13 @@
 const prisma = require('../config/database');
 const sentimentService = require('../services/sentimentService');
+const { validatePaginationParams, createPaginationConfig, processPaginatedResults } = require('../utils/pagination');
+const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
+const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
 
 /**
  * Create a new post
  */
-const createPost = async (req, res) => {
+const createPost = async (req, res, next) => {
    try {
       const { content, type = 'TEXT', isPublic = true } = req.body;
       const userId = req.user.id;
@@ -46,27 +49,24 @@ const createPost = async (req, res) => {
          io.emit('post:new', post);
       }
 
-      res.status(201).json({
-         success: true,
-         message: 'Post created successfully',
-         data: { post },
-      });
+      return successResponse(res, { post }, 'Post created successfully', HTTP_STATUS.CREATED);
    } catch (error) {
       console.error('Create post error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while creating post',
-      });
+      next(error);
    }
 };
 
 /**
  * Get posts feed
  */
-const getFeed = async (req, res) => {
+const getFeed = async (req, res, next) => {
    try {
       const userId = req.user?.id;
-      const { limit = 10, offset = 0, type = 'all' } = req.query;
+      const { type = 'all', ...paginationParams } = req.query;
+
+      // Validate and optimize pagination parameters
+      const validatedParams = validatePaginationParams(paginationParams);
+      const paginationConfig = createPaginationConfig(validatedParams);
 
       // Build where clause
       let whereClause = { isPublic: true };
@@ -75,7 +75,10 @@ const getFeed = async (req, res) => {
          whereClause.type = type.toUpperCase();
       }
 
-      // Get posts
+      // Merge with cursor-based where conditions
+      whereClause = { ...whereClause, ...paginationConfig.where };
+
+      // Get posts with optimized query
       const posts = await prisma.post.findMany({
          where: whereClause,
          include: {
@@ -100,44 +103,33 @@ const getFeed = async (req, res) => {
                },
             },
          },
-         orderBy: {
-            createdAt: 'desc',
-         },
-         take: parseInt(limit),
-         skip: parseInt(offset),
+         orderBy: paginationConfig.orderBy,
+         take: paginationConfig.take,
+         skip: paginationConfig.skip,
+         cursor: paginationConfig.cursor,
       });
 
+      // Process pagination results
+      const { items: processedPosts, pagination } = processPaginatedResults(posts, paginationConfig);
+
       // Process posts to include user's reaction
-      const processedPosts = posts.map((post) => ({
+      const finalPosts = processedPosts.map((post) => ({
          ...post,
          userReaction: post.reactions?.[0]?.type || null,
          reactions: undefined, // Remove reactions array from response
       }));
 
-      res.json({
-         success: true,
-         data: {
-            posts: processedPosts,
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               hasMore: posts.length === parseInt(limit),
-            },
-         },
-      });
+      return paginatedResponse(res, { posts: finalPosts }, pagination);
    } catch (error) {
       console.error('Get feed error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching feed',
-      });
+      next(error);
    }
 };
 
 /**
  * Get single post by ID
  */
-const getPostById = async (req, res) => {
+const getPostById = async (req, res, next) => {
    try {
       const { id } = req.params;
       const userId = req.user?.id;
@@ -169,18 +161,12 @@ const getPostById = async (req, res) => {
       });
 
       if (!post) {
-         return res.status(404).json({
-            success: false,
-            error: 'Post not found',
-         });
+         throw new NotFoundError('Post not found');
       }
 
       // Check if user can view this post
       if (!post.isPublic && (!userId || post.authorId !== userId)) {
-         return res.status(403).json({
-            success: false,
-            error: 'Access denied to this post',
-         });
+         throw new ValidationError('Access denied to this post');
       }
 
       const processedPost = {
@@ -189,23 +175,17 @@ const getPostById = async (req, res) => {
          reactions: undefined,
       };
 
-      res.json({
-         success: true,
-         data: { post: processedPost },
-      });
+      return successResponse(res, { post: processedPost });
    } catch (error) {
       console.error('Get post by ID error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching post',
-      });
+      next(error);
    }
 };
 
 /**
  * Update post
  */
-const updatePost = async (req, res) => {
+const updatePost = async (req, res, next) => {
    try {
       const { id } = req.params;
       const { content, isPublic } = req.body;
@@ -217,17 +197,11 @@ const updatePost = async (req, res) => {
       });
 
       if (!existingPost) {
-         return res.status(404).json({
-            success: false,
-            error: 'Post not found',
-         });
+         throw new NotFoundError('Post not found');
       }
 
       if (existingPost.authorId !== userId) {
-         return res.status(403).json({
-            success: false,
-            error: 'Access denied: You can only edit your own posts',
-         });
+         throw new ValidationError('Access denied: You can only edit your own posts');
       }
 
       // Update post
@@ -268,24 +242,17 @@ const updatePost = async (req, res) => {
          io.emit('post:updated', updatedPost);
       }
 
-      res.json({
-         success: true,
-         message: 'Post updated successfully',
-         data: { post: updatedPost },
-      });
+      return successResponse(res, { post: updatedPost }, 'Post updated successfully');
    } catch (error) {
       console.error('Update post error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while updating post',
-      });
+      next(error);
    }
 };
 
 /**
  * Delete post
  */
-const deletePost = async (req, res) => {
+const deletePost = async (req, res, next) => {
    try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -296,17 +263,11 @@ const deletePost = async (req, res) => {
       });
 
       if (!existingPost) {
-         return res.status(404).json({
-            success: false,
-            error: 'Post not found',
-         });
+         throw new NotFoundError('Post not found');
       }
 
       if (existingPost.authorId !== userId) {
-         return res.status(403).json({
-            success: false,
-            error: 'Access denied: You can only delete your own posts',
-         });
+         throw new ValidationError('Access denied: You can only delete your own posts');
       }
 
       // Delete post (cascade will handle comments and reactions)
@@ -320,23 +281,17 @@ const deletePost = async (req, res) => {
          io.emit('post:deleted', { id });
       }
 
-      res.json({
-         success: true,
-         message: 'Post deleted successfully',
-      });
+      return successResponse(res, null, 'Post deleted successfully');
    } catch (error) {
       console.error('Delete post error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while deleting post',
-      });
+      next(error);
    }
 };
 
 /**
  * Get posts by user
  */
-const getUserPosts = async (req, res) => {
+const getUserPosts = async (req, res, next) => {
    try {
       const { userId } = req.params;
       const currentUserId = req.user?.id;
@@ -385,23 +340,18 @@ const getUserPosts = async (req, res) => {
          reactions: undefined,
       }));
 
-      res.json({
-         success: true,
-         data: {
-            posts: processedPosts,
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               hasMore: posts.length === parseInt(limit),
-            },
-         },
-      });
+      return paginatedResponse(
+         res,
+         { posts: processedPosts },
+         {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            hasMore: posts.length === parseInt(limit),
+         }
+      );
    } catch (error) {
       console.error('Get user posts error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching user posts',
-      });
+      next(error);
    }
 };
 

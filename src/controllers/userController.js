@@ -1,9 +1,11 @@
 const prisma = require('../config/database');
+const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
+const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
 
 /**
  * Get user by ID
  */
-const getUserById = async (req, res) => {
+const getUserById = async (req, res, next) => {
    try {
       const { id } = req.params;
 
@@ -29,10 +31,7 @@ const getUserById = async (req, res) => {
       });
 
       if (!user) {
-         return res.status(404).json({
-            success: false,
-            error: 'User not found',
-         });
+         throw new NotFoundError('User not found');
       }
 
       // Check if current user follows this user
@@ -49,36 +48,27 @@ const getUserById = async (req, res) => {
          isFollowing = !!followRecord;
       }
 
-      res.json({
-         success: true,
-         data: {
-            user: {
-               ...user,
-               isFollowing,
-            },
+      return successResponse(res, {
+         user: {
+            ...user,
+            isFollowing,
          },
       });
    } catch (error) {
       console.error('Get user by ID error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching user',
-      });
+      next(error);
    }
 };
 
 /**
  * Search users
  */
-const searchUsers = async (req, res) => {
+const searchUsers = async (req, res, next) => {
    try {
       const { q, limit = 10, offset = 0 } = req.query;
 
       if (!q) {
-         return res.status(400).json({
-            success: false,
-            error: 'Search query is required',
-         });
+         throw new ValidationError('Search query is required');
       }
 
       const users = await prisma.user.findMany({
@@ -114,30 +104,25 @@ const searchUsers = async (req, res) => {
          },
       });
 
-      res.json({
-         success: true,
-         data: {
-            users,
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               total: users.length,
-            },
-         },
-      });
+      return paginatedResponse(
+         res,
+         { users },
+         {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            total: users.length,
+         }
+      );
    } catch (error) {
       console.error('Search users error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while searching users',
-      });
+      next(error);
    }
 };
 
 /**
  * Follow user
  */
-const followUser = async (req, res) => {
+const followUser = async (req, res, next) => {
    try {
       const { id } = req.params;
 
@@ -147,18 +132,12 @@ const followUser = async (req, res) => {
       });
 
       if (!userToFollow) {
-         return res.status(404).json({
-            success: false,
-            error: 'User not found',
-         });
+         throw new NotFoundError('User not found');
       }
 
       // Check if user is trying to follow themselves
       if (id === req.user.id) {
-         return res.status(400).json({
-            success: false,
-            error: 'You cannot follow yourself',
-         });
+         throw new ValidationError('You cannot follow yourself');
       }
 
       // Check if already following
@@ -172,10 +151,7 @@ const followUser = async (req, res) => {
       });
 
       if (existingFollow) {
-         return res.status(400).json({
-            success: false,
-            error: 'You are already following this user',
-         });
+         throw new ValidationError('You are already following this user');
       }
 
       // Create follow relationship
@@ -197,23 +173,17 @@ const followUser = async (req, res) => {
          },
       });
 
-      res.json({
-         success: true,
-         message: 'User followed successfully',
-      });
+      return successResponse(res, null, 'User followed successfully');
    } catch (error) {
       console.error('Follow user error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while following user',
-      });
+      next(error);
    }
 };
 
 /**
  * Unfollow user
  */
-const unfollowUser = async (req, res) => {
+const unfollowUser = async (req, res, next) => {
    try {
       const { id } = req.params;
 
@@ -228,10 +198,7 @@ const unfollowUser = async (req, res) => {
       });
 
       if (!followRecord) {
-         return res.status(400).json({
-            success: false,
-            error: 'You are not following this user',
-         });
+         throw new ValidationError('You are not following this user');
       }
 
       // Remove follow relationship
@@ -244,23 +211,17 @@ const unfollowUser = async (req, res) => {
          },
       });
 
-      res.json({
-         success: true,
-         message: 'User unfollowed successfully',
-      });
+      return successResponse(res, null, 'User unfollowed successfully');
    } catch (error) {
       console.error('Unfollow user error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while unfollowing user',
-      });
+      next(error);
    }
 };
 
 /**
  * Get user followers
  */
-const getFollowers = async (req, res) => {
+const getFollowers = async (req, res, next) => {
    try {
       const { id } = req.params;
       const { limit = 10, offset = 0 } = req.query;
@@ -290,30 +251,25 @@ const getFollowers = async (req, res) => {
          where: { followingId: id },
       });
 
-      res.json({
-         success: true,
-         data: {
-            followers: followers.map((f) => f.follower),
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               total: totalFollowers,
-            },
-         },
-      });
+      return paginatedResponse(
+         res,
+         { followers: followers.map((f) => f.follower) },
+         {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            total: totalFollowers,
+         }
+      );
    } catch (error) {
       console.error('Get followers error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching followers',
-      });
+      next(error);
    }
 };
 
 /**
  * Get user following
  */
-const getFollowing = async (req, res) => {
+const getFollowing = async (req, res, next) => {
    try {
       const { id } = req.params;
       const { limit = 10, offset = 0 } = req.query;
@@ -343,23 +299,18 @@ const getFollowing = async (req, res) => {
          where: { followerId: id },
       });
 
-      res.json({
-         success: true,
-         data: {
-            following: following.map((f) => f.following),
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               total: totalFollowing,
-            },
-         },
-      });
+      return paginatedResponse(
+         res,
+         { following: following.map((f) => f.following) },
+         {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            total: totalFollowing,
+         }
+      );
    } catch (error) {
       console.error('Get following error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching following',
-      });
+      next(error);
    }
 };
 

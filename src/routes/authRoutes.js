@@ -8,6 +8,8 @@ const { validate, schemas } = require('../middlewares/validationMiddleware');
 // Public routes
 router.post('/register', validate(schemas.register), authController.register);
 router.post('/login', validate(schemas.login), authController.login);
+router.post('/forgot-password', validate(schemas.forgotPassword), authController.forgotPassword);
+router.post('/reset-password', validate(schemas.resetPassword), authController.resetPassword);
 
 // Protected routes
 router.post('/logout', authenticate, authController.logout);

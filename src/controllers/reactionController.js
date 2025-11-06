@@ -1,9 +1,11 @@
 const prisma = require('../config/database');
+const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
+const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
 
 /**
  * Add or update reaction to post
  */
-const addPostReaction = async (req, res) => {
+const addPostReaction = async (req, res, next) => {
    try {
       const { postId } = req.params;
       const { type } = req.body;
@@ -12,10 +14,7 @@ const addPostReaction = async (req, res) => {
       // Validate reaction type
       const validTypes = ['LIKE', 'LOVE', 'LAUGH', 'ANGRY', 'SAD', 'WOW'];
       if (!validTypes.includes(type)) {
-         return res.status(400).json({
-            success: false,
-            error: 'Invalid reaction type',
-         });
+         throw new ValidationError('Invalid reaction type');
       }
 
       // Check if post exists
@@ -29,10 +28,7 @@ const addPostReaction = async (req, res) => {
       });
 
       if (!post) {
-         return res.status(404).json({
-            success: false,
-            error: 'Post not found',
-         });
+         throw new NotFoundError('Post not found');
       }
 
       // Check if user already reacted to this post
@@ -128,28 +124,25 @@ const addPostReaction = async (req, res) => {
          });
       }
 
-      res.json({
-         success: true,
-         message: `Reaction ${action} successfully`,
-         data: {
+      return successResponse(
+         res,
+         {
             reaction: reaction ? { type: reaction.type } : null,
             action,
             counts,
          },
-      });
+         `Reaction ${action} successfully`
+      );
    } catch (error) {
       console.error('Add post reaction error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while adding reaction',
-      });
+      next(error);
    }
 };
 
 /**
  * Add or update reaction to comment
  */
-const addCommentReaction = async (req, res) => {
+const addCommentReaction = async (req, res, next) => {
    try {
       const { commentId } = req.params;
       const { type } = req.body;
@@ -158,10 +151,7 @@ const addCommentReaction = async (req, res) => {
       // Validate reaction type
       const validTypes = ['LIKE', 'LOVE', 'LAUGH', 'ANGRY', 'SAD', 'WOW'];
       if (!validTypes.includes(type)) {
-         return res.status(400).json({
-            success: false,
-            error: 'Invalid reaction type',
-         });
+         throw new ValidationError('Invalid reaction type');
       }
 
       // Check if comment exists
@@ -175,10 +165,7 @@ const addCommentReaction = async (req, res) => {
       });
 
       if (!comment) {
-         return res.status(404).json({
-            success: false,
-            error: 'Comment not found',
-         });
+         throw new NotFoundError('Comment not found');
       }
 
       // Check if user already reacted to this comment
@@ -274,28 +261,25 @@ const addCommentReaction = async (req, res) => {
          });
       }
 
-      res.json({
-         success: true,
-         message: `Reaction ${action} successfully`,
-         data: {
+      return successResponse(
+         res,
+         {
             reaction: reaction ? { type: reaction.type } : null,
             action,
             counts,
          },
-      });
+         `Reaction ${action} successfully`
+      );
    } catch (error) {
       console.error('Add comment reaction error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while adding reaction',
-      });
+      next(error);
    }
 };
 
 /**
  * Get post reactions
  */
-const getPostReactions = async (req, res) => {
+const getPostReactions = async (req, res, next) => {
    try {
       const { postId } = req.params;
       const { type, limit = 50, offset = 0 } = req.query;
@@ -306,10 +290,7 @@ const getPostReactions = async (req, res) => {
       });
 
       if (!post) {
-         return res.status(404).json({
-            success: false,
-            error: 'Post not found',
-         });
+         throw new NotFoundError('Post not found');
       }
 
       // Build where clause
@@ -337,30 +318,25 @@ const getPostReactions = async (req, res) => {
          skip: parseInt(offset),
       });
 
-      res.json({
-         success: true,
-         data: {
-            reactions,
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               hasMore: reactions.length === parseInt(limit),
-            },
-         },
-      });
+      return paginatedResponse(
+         res,
+         { reactions },
+         {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            hasMore: reactions.length === parseInt(limit),
+         }
+      );
    } catch (error) {
       console.error('Get post reactions error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching reactions',
-      });
+      next(error);
    }
 };
 
 /**
  * Get comment reactions
  */
-const getCommentReactions = async (req, res) => {
+const getCommentReactions = async (req, res, next) => {
    try {
       const { commentId } = req.params;
       const { type, limit = 50, offset = 0 } = req.query;
@@ -371,10 +347,7 @@ const getCommentReactions = async (req, res) => {
       });
 
       if (!comment) {
-         return res.status(404).json({
-            success: false,
-            error: 'Comment not found',
-         });
+         throw new NotFoundError('Comment not found');
       }
 
       // Build where clause
@@ -402,23 +375,18 @@ const getCommentReactions = async (req, res) => {
          skip: parseInt(offset),
       });
 
-      res.json({
-         success: true,
-         data: {
-            reactions,
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               hasMore: reactions.length === parseInt(limit),
-            },
-         },
-      });
+      return paginatedResponse(
+         res,
+         { reactions },
+         {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            hasMore: reactions.length === parseInt(limit),
+         }
+      );
    } catch (error) {
       console.error('Get comment reactions error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching reactions',
-      });
+      next(error);
    }
 };
 

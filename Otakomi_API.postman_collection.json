@@ -1,0 +1,1952 @@
+{
+   "info": {
+      "_postman_id": "Otakomi-api-collection",
+      "name": "Otakomi API Collection",
+      "description": "Complete API collection for Otakomi Backend with error handling and authentication",
+      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+   },
+   "auth": {
+      "type": "bearer",
+      "bearer": [
+         {
+            "key": "token",
+            "value": "{{auth_token}}",
+            "type": "string"
+         }
+      ]
+   },
+   "event": [
+      {
+         "listen": "prerequest",
+         "script": {
+            "type": "text/javascript",
+            "exec": [""]
+         }
+      },
+      {
+         "listen": "test",
+         "script": {
+            "type": "text/javascript",
+            "exec": [""]
+         }
+      }
+   ],
+   "variable": [
+      {
+         "key": "base_url",
+         "value": "http://localhost:8080/api/v1",
+         "type": "string"
+      },
+      {
+         "key": "auth_token",
+         "value": "",
+         "type": "string"
+      },
+      {
+         "key": "user_id",
+         "value": "",
+         "type": "string"
+      },
+      {
+         "key": "post_id",
+         "value": "",
+         "type": "string"
+      },
+      {
+         "key": "comment_id",
+         "value": "",
+         "type": "string"
+      }
+   ],
+   "item": [
+      {
+         "name": "🔐 Authentication",
+         "item": [
+            {
+               "name": "Register User",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "if (pm.response.code === 201) {",
+                           "    const response = pm.response.json();",
+                           "    pm.collectionVariables.set('auth_token', response.data.token);",
+                           "    pm.collectionVariables.set('user_id', response.data.user.id);",
+                           "    pm.test('Registration successful', () => {",
+                           "        pm.expect(response.success).to.be.true;",
+                           "        pm.expect(response.data.token).to.not.be.empty;",
+                           "    });",
+                           "} else {",
+                           "    pm.test('Registration failed as expected', () => {",
+                           "        const response = pm.response.json();",
+                           "        pm.expect(response.success).to.be.false;",
+                           "        pm.expect(response.error).to.not.be.empty;",
+                           "    });",
+                           "}"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"email\": \"john.doe@example.com\",\n    \"username\": \"johndoe\",\n    \"password\": \"password123\",\n    \"displayName\": \"John Doe\",\n    \"dateOfBirth\": \"1990-01-01\",\n    \"bio\": \"Software Developer\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/register",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "register"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Login User",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "if (pm.response.code === 200) {",
+                           "    const response = pm.response.json();",
+                           "    pm.collectionVariables.set('auth_token', response.data.token);",
+                           "    pm.collectionVariables.set('user_id', response.data.user.id);",
+                           "    pm.test('Login successful', () => {",
+                           "        pm.expect(response.success).to.be.true;",
+                           "        pm.expect(response.data.token).to.not.be.empty;",
+                           "        pm.expect(response.data.user.email).to.not.be.empty;",
+                           "    });",
+                           "} else {",
+                           "    pm.test('Login failed', () => {",
+                           "        const response = pm.response.json();",
+                           "        pm.expect(response.success).to.be.false;",
+                           "        pm.expect(response.error).to.not.be.empty;",
+                           "    });",
+                           "}"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"email\": \"john.doe@example.com\",\n    \"password\": \"password123\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/login",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "login"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Login - Invalid Credentials",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return 401 for invalid credentials', () => {",
+                           "    pm.expect(pm.response.code).to.equal(401);",
+                           "});",
+                           "",
+                           "pm.test('Should return error message', () => {",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.false;",
+                           "    pm.expect(response.error).to.equal('Invalid email or password');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"email\": \"invalid@example.com\",\n    \"password\": \"wrongpassword\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/login",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "login"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get Profile",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return user profile', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data.user).to.not.be.empty;",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/auth/profile",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "profile"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Update Profile",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should update profile successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.equal('Profile updated successfully');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "PUT",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"displayName\": \"John Doe Updated\",\n    \"bio\": \"Updated bio - Full Stack Developer\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/profile",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "profile"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Change Password",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should change password successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.equal('Password changed successfully');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "PUT",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"currentPassword\": \"password123\",\n    \"newPassword\": \"newpassword123\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/password",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "password"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Verify Token",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should verify token successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.equal('Token verified successfully');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/auth/verify",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "verify"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Forgot Password",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should handle forgot password request', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('password reset link');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"email\": \"user@example.com\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/forgot-password",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "forgot-password"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Reset Password",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should reset password successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('changed');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"token\": \"reset_token_here\",\n    \"newPassword\": \"newpassword123\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/reset-password",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "reset-password"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Logout",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should logout successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.equal('Logout successful');",
+                           "});",
+                           "",
+                           "// Clear auth token after logout",
+                           "pm.collectionVariables.set('auth_token', '');"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/auth/logout",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "logout"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "🧪 Error Handling Tests",
+         "item": [
+            {
+               "name": "Register - Invalid Email",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return 400 for invalid email', () => {",
+                           "    pm.expect(pm.response.code).to.equal(400);",
+                           "});",
+                           "",
+                           "pm.test('Should return validation error', () => {",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.false;",
+                           "    pm.expect(response.error).to.include('Validation');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"email\": \"invalid-email\",\n    \"username\": \"testuser\",\n    \"password\": \"password123\",\n    \"displayName\": \"Test User\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/register",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "register"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Register - Missing Required Fields",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return 400 for missing required fields', () => {",
+                           "    pm.expect(pm.response.code).to.equal(400);",
+                           "});",
+                           "",
+                           "pm.test('Should return validation error', () => {",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.false;",
+                           "    pm.expect(response.error).to.include('Validation');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"email\": \"test@example.com\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/register",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "register"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Protected Route - No Token",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return 401 for missing token', () => {",
+                           "    pm.expect(pm.response.code).to.equal(401);",
+                           "});",
+                           "",
+                           "pm.test('Should return authentication error', () => {",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.false;",
+                           "    pm.expect(response.error).to.include('token');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/auth/profile",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "profile"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Protected Route - Invalid Token",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return 401 for invalid token', () => {",
+                           "    pm.expect(pm.response.code).to.equal(401);",
+                           "});",
+                           "",
+                           "pm.test('Should return authentication error', () => {",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.false;",
+                           "    pm.expect(response.error).to.include('Invalid');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "invalid_token_here",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/auth/profile",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "profile"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Change Password - Wrong Current Password",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return 400 for wrong current password', () => {",
+                           "    pm.expect(pm.response.code).to.equal(400);",
+                           "});",
+                           "",
+                           "pm.test('Should return validation error', () => {",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.false;",
+                           "    pm.expect(response.error).to.include('Current password is incorrect');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "PUT",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"currentPassword\": \"wrongpassword\",\n    \"newPassword\": \"newpassword123\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/auth/password",
+                     "host": ["{{base_url}}"],
+                     "path": ["auth", "password"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "� Users",
+         "item": [
+            {
+               "name": "Search Users",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return users successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/users/search?q=test",
+                     "host": ["{{base_url}}"],
+                     "path": ["users", "search"],
+                     "query": [
+                        {
+                           "key": "q",
+                           "value": "test"
+                        }
+                     ]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get User by ID",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return user successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data.user).to.not.be.empty;",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/users/{{user_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["users", "{{user_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get User Followers",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return followers successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/users/{{user_id}}/followers",
+                     "host": ["{{base_url}}"],
+                     "path": ["users", "{{user_id}}", "followers"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get User Following",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return following successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/users/{{user_id}}/following",
+                     "host": ["{{base_url}}"],
+                     "path": ["users", "{{user_id}}", "following"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Follow User",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should follow user successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('followed');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/users/{{user_id}}/follow",
+                     "host": ["{{base_url}}"],
+                     "path": ["users", "{{user_id}}", "follow"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Unfollow User",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should unfollow user successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('unfollowed');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "DELETE",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/users/{{user_id}}/follow",
+                     "host": ["{{base_url}}"],
+                     "path": ["users", "{{user_id}}", "follow"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "� Posts",
+         "item": [
+            {
+               "name": "Get Feed",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return feed successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/posts/feed?page=1&limit=10",
+                     "host": ["{{base_url}}"],
+                     "path": ["posts", "feed"],
+                     "query": [
+                        {
+                           "key": "page",
+                           "value": "1"
+                        },
+                        {
+                           "key": "limit",
+                           "value": "10"
+                        }
+                     ]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get Post by ID",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return post successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data.post).to.not.be.empty;",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/posts/{{post_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["posts", "{{post_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get User Posts",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return user posts successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/posts/user/{{user_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["posts", "user", "{{user_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Create Post",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "if (pm.response.code === 201) {",
+                           "    const response = pm.response.json();",
+                           "    pm.collectionVariables.set('post_id', response.data.post.id);",
+                           "    pm.test('Post created successfully', () => {",
+                           "        pm.expect(response.success).to.be.true;",
+                           "        pm.expect(response.data.post.content).to.equal('Test post content');",
+                           "    });",
+                           "} else {",
+                           "    pm.test('Post creation failed', () => {",
+                           "        const response = pm.response.json();",
+                           "        pm.expect(response.success).to.be.false;",
+                           "    });",
+                           "}"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"content\": \"Test post content\",\n    \"type\": \"TEXT\",\n    \"isPublic\": true\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/posts",
+                     "host": ["{{base_url}}"],
+                     "path": ["posts"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Update Post",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should update post successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('updated');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "PUT",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"content\": \"Updated post content\",\n    \"isPublic\": false\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/posts/{{post_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["posts", "{{post_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Delete Post",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should delete post successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('deleted');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "DELETE",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/posts/{{post_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["posts", "{{post_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Add Post Reaction",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should add reaction successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('reaction');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"type\": \"LIKE\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/posts/{{post_id}}/reactions",
+                     "host": ["{{base_url}}"],
+                     "path": ["posts", "{{post_id}}", "reactions"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get Post Reactions",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return reactions successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/posts/{{post_id}}/reactions",
+                     "host": ["{{base_url}}"],
+                     "path": ["posts", "{{post_id}}", "reactions"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "� Comments",
+         "item": [
+            {
+               "name": "Get Post Comments",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return comments successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/comments/post/{{post_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["comments", "post", "{{post_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get Comment Replies",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return replies successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/comments/{{comment_id}}/replies",
+                     "host": ["{{base_url}}"],
+                     "path": ["comments", "{{comment_id}}", "replies"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Create Comment",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "if (pm.response.code === 201) {",
+                           "    const response = pm.response.json();",
+                           "    pm.collectionVariables.set('comment_id', response.data.comment.id);",
+                           "    pm.test('Comment created successfully', () => {",
+                           "        pm.expect(response.success).to.be.true;",
+                           "        pm.expect(response.data.comment.content).to.equal('Test comment');",
+                           "    });",
+                           "} else {",
+                           "    pm.test('Comment creation failed', () => {",
+                           "        const response = pm.response.json();",
+                           "        pm.expect(response.success).to.be.false;",
+                           "    });",
+                           "}"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"content\": \"Test comment\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/comments/post/{{post_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["comments", "post", "{{post_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Update Comment",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should update comment successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('updated');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "PUT",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"content\": \"Updated comment\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/comments/{{comment_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["comments", "{{comment_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Delete Comment",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should delete comment successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('deleted');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "DELETE",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/comments/{{comment_id}}",
+                     "host": ["{{base_url}}"],
+                     "path": ["comments", "{{comment_id}}"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Add Comment Reaction",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should add reaction successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('reaction');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"type\": \"LIKE\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/comments/{{comment_id}}/reactions",
+                     "host": ["{{base_url}}"],
+                     "path": ["comments", "{{comment_id}}", "reactions"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Get Comment Reactions",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return reactions successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.data).to.be.an('array');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/comments/{{comment_id}}/reactions",
+                     "host": ["{{base_url}}"],
+                     "path": ["comments", "{{comment_id}}", "reactions"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "� Messages",
+         "item": [
+            {
+               "name": "Get Messages",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return messages placeholder', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('coming soon');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/messages",
+                     "host": ["{{base_url}}"],
+                     "path": ["messages"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Send Message",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return send message placeholder', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('coming soon');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [
+                     {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                     }
+                  ],
+                  "body": {
+                     "mode": "raw",
+                     "raw": "{\n    \"content\": \"Test message\",\n    \"receiverId\": \"{{user_id}}\"\n}"
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/messages",
+                     "host": ["{{base_url}}"],
+                     "path": ["messages"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "� Notifications",
+         "item": [
+            {
+               "name": "Get Notifications",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return notifications placeholder', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('coming soon');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/notifications",
+                     "host": ["{{base_url}}"],
+                     "path": ["notifications"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Mark Notification as Read",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return mark read placeholder', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('coming soon');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "PUT",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/notifications/123/read",
+                     "host": ["{{base_url}}"],
+                     "path": ["notifications", "123", "read"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "📞 Calls",
+         "item": [
+            {
+               "name": "Initiate Call",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return initiate call placeholder', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('coming soon');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/calls/initiate",
+                     "host": ["{{base_url}}"],
+                     "path": ["calls", "initiate"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Answer Call",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return answer call placeholder', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('coming soon');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/calls/123/answer",
+                     "host": ["{{base_url}}"],
+                     "path": ["calls", "123", "answer"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "End Call",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return end call placeholder', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('coming soon');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/calls/123/end",
+                     "host": ["{{base_url}}"],
+                     "path": ["calls", "123", "end"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "📎 Upload",
+         "item": [
+            {
+               "name": "Upload Image",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should upload image successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('uploaded');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [],
+                  "body": {
+                     "mode": "formdata",
+                     "formdata": [
+                        {
+                           "key": "image",
+                           "type": "file",
+                           "src": []
+                        }
+                     ]
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/upload/image",
+                     "host": ["{{base_url}}"],
+                     "path": ["upload", "image"]
+                  }
+               },
+               "response": []
+            },
+            {
+               "name": "Upload Multiple Images",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should upload images successfully', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.success).to.be.true;",
+                           "    pm.expect(response.message).to.include('uploaded');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "auth": {
+                     "type": "bearer",
+                     "bearer": [
+                        {
+                           "key": "token",
+                           "value": "{{auth_token}}",
+                           "type": "string"
+                        }
+                     ]
+                  },
+                  "method": "POST",
+                  "header": [],
+                  "body": {
+                     "mode": "formdata",
+                     "formdata": [
+                        {
+                           "key": "images",
+                           "type": "file",
+                           "src": []
+                        }
+                     ]
+                  },
+                  "url": {
+                     "raw": "{{base_url}}/upload/images",
+                     "host": ["{{base_url}}"],
+                     "path": ["upload", "images"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      },
+      {
+         "name": "🔧 Health Check",
+         "item": [
+            {
+               "name": "Health Check",
+               "event": [
+                  {
+                     "listen": "test",
+                     "script": {
+                        "exec": [
+                           "pm.test('Should return 200', () => {",
+                           "    pm.expect(pm.response.code).to.equal(200);",
+                           "});",
+                           "",
+                           "pm.test('Should return status OK', () => {",
+                           "    const response = pm.response.json();",
+                           "    pm.expect(response.status).to.equal('OK');",
+                           "});"
+                        ],
+                        "type": "text/javascript"
+                     }
+                  }
+               ],
+               "request": {
+                  "method": "GET",
+                  "header": [],
+                  "url": {
+                     "raw": "{{base_url}}/../health",
+                     "host": ["{{base_url}}"],
+                     "path": ["..", "health"]
+                  }
+               },
+               "response": []
+            }
+         ]
+      }
+   ]
+}

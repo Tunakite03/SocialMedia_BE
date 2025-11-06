@@ -62,6 +62,7 @@ const corsOptions = {
 
 // Áp dụng CORS càng sớm càng tốt
 app.use(cors(corsOptions));
+
 // Handle preflight TOÀN CỤC trước mọi middleware khác
 app.options('*', cors(corsOptions));
 
@@ -85,7 +86,7 @@ const limiter = rateLimit({
    skip: (req) => req.method === 'OPTIONS',
    message: 'Too many requests from this IP, please try again later.',
 });
-app.use(limiter);
+// app.use(limiter);
 
 // ===== Body parsers =====
 app.use(express.json({ limit: '10mb' }));

@@ -1,8 +1,11 @@
+'use strict';
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const prisma = require('../config/database');
 const { successResponse } = require('../utils/responseFormatter');
 const Logger = require('../utils/logger');
+const emailService = require('../services/mailService');
 const {
    ConflictError,
    AuthenticationError,
@@ -75,6 +78,15 @@ const register = async (req, res, next) => {
 
       Logger.logDatabase('CREATE', 'user', { userId: user.id, email: user.email });
       Logger.logAuth('register', user, req.ip);
+
+      // Send welcome email asynchronously
+      emailService.sendWelcomeEmail(user.email, user.displayName || user.username).catch((error) => {
+         Logger.error('Failed to send welcome email after registration', {
+            userId: user.id,
+            email: user.email,
+            error: error.message,
+         });
+      });
 
       // Generate token
       const token = generateToken(user.id);
@@ -304,6 +316,105 @@ const verifyToken = async (req, res, next) => {
    }
 };
 
+/**
+ * Forgot password - send reset email
+ */
+const forgotPassword = async (req, res, next) => {
+   try {
+      const { email } = req.body;
+
+      Logger.info('Password reset request', { email });
+
+      // Find user by email
+      const user = await prisma.user.findUnique({
+         where: { email },
+      });
+
+      if (!user) {
+         // Don't reveal if email exists or not for security
+         Logger.warn('Password reset attempted for non-existent email', { email });
+         return successResponse(
+            res,
+            null,
+            'If an account with that email exists, a password reset link has been sent.'
+         );
+      }
+
+      // Generate reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      // Save reset token to database
+      await prisma.user.update({
+         where: { id: user.id },
+         data: {
+            resetToken,
+            resetTokenExpiry,
+         },
+      });
+
+      // Send reset email
+      try {
+         await emailService.sendPasswordResetEmail(email, resetToken);
+         Logger.info('Password reset email sent successfully', { email, userId: user.id });
+      } catch (emailError) {
+         Logger.error('Failed to send password reset email', { email, userId: user.id, error: emailError.message });
+         // Don't fail the request if email fails, but log it
+      }
+
+      return successResponse(res, null, 'If an account with that email exists, a password reset link has been sent.');
+   } catch (error) {
+      Logger.error('Password reset request failed', { error: error.message });
+      next(error);
+   }
+};
+
+/**
+ * Reset password with token
+ */
+const resetPassword = async (req, res, next) => {
+   try {
+      const { token, newPassword } = req.body;
+
+      Logger.info('Password reset attempt with token');
+
+      // Find user by reset token
+      const user = await prisma.user.findFirst({
+         where: {
+            resetToken: token,
+            resetTokenExpiry: {
+               gt: new Date(), // Token not expired
+            },
+         },
+      });
+
+      if (!user) {
+         Logger.warn('Invalid or expired reset token used');
+         throw new ValidationError('Invalid or expired reset token');
+      }
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+      // Update password and clear reset token
+      await prisma.user.update({
+         where: { id: user.id },
+         data: {
+            password: hashedPassword,
+            resetToken: null,
+            resetTokenExpiry: null,
+         },
+      });
+
+      Logger.info('Password reset successful', { userId: user.id });
+
+      return successResponse(res, null, SUCCESS_MESSAGES.PASSWORD_CHANGED);
+   } catch (error) {
+      Logger.error('Password reset failed', { error: error.message });
+      next(error);
+   }
+};
+
 module.exports = {
    register,
    login,
@@ -312,4 +423,6 @@ module.exports = {
    updateProfile,
    changePassword,
    verifyToken,
+   forgotPassword,
+   resetPassword,
 };

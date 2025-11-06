@@ -1,10 +1,18 @@
 const prisma = require('../config/database');
 const sentimentService = require('../services/sentimentService');
+const { successResponse, errorResponse, paginatedResponse } = require('../utils/responseFormatter');
+const {
+   NotFoundError,
+   ValidationError,
+   ERROR_MESSAGES,
+   SUCCESS_MESSAGES,
+   HTTP_STATUS,
+} = require('../constants/errors');
 
 /**
  * Create a new comment
  */
-const createComment = async (req, res) => {
+const createComment = async (req, res, next) => {
    try {
       const { content, parentId } = req.body;
       const { postId } = req.params;
@@ -21,10 +29,7 @@ const createComment = async (req, res) => {
       });
 
       if (!post) {
-         return res.status(404).json({
-            success: false,
-            error: 'Post not found',
-         });
+         throw new NotFoundError('Post not found');
       }
 
       // If parentId is provided, check if parent comment exists
@@ -34,17 +39,11 @@ const createComment = async (req, res) => {
          });
 
          if (!parentComment) {
-            return res.status(404).json({
-               success: false,
-               error: 'Parent comment not found',
-            });
+            throw new NotFoundError('Parent comment not found');
          }
 
          if (parentComment.postId !== postId) {
-            return res.status(400).json({
-               success: false,
-               error: 'Parent comment does not belong to this post',
-            });
+            throw new ValidationError('Parent comment does not belong to this post');
          }
       }
 
@@ -113,24 +112,17 @@ const createComment = async (req, res) => {
          io.emit('comment:new', { postId, comment });
       }
 
-      res.status(201).json({
-         success: true,
-         message: 'Comment created successfully',
-         data: { comment },
-      });
+      return successResponse(res, { comment }, 'Comment created successfully', HTTP_STATUS.CREATED);
    } catch (error) {
       console.error('Create comment error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while creating comment',
-      });
+      next(error);
    }
 };
 
 /**
  * Get comments for a post
  */
-const getPostComments = async (req, res) => {
+const getPostComments = async (req, res, next) => {
    try {
       const { postId } = req.params;
       const userId = req.user?.id;
@@ -142,10 +134,7 @@ const getPostComments = async (req, res) => {
       });
 
       if (!post) {
-         return res.status(404).json({
-            success: false,
-            error: 'Post not found',
-         });
+         throw new NotFoundError('Post not found');
       }
 
       // Build order clause
@@ -226,30 +215,25 @@ const getPostComments = async (req, res) => {
          })),
       }));
 
-      res.json({
-         success: true,
-         data: {
-            comments: processedComments,
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               hasMore: comments.length === parseInt(limit),
-            },
-         },
-      });
+      return paginatedResponse(
+         res,
+         { comments: processedComments },
+         {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            hasMore: comments.length === parseInt(limit),
+         }
+      );
    } catch (error) {
       console.error('Get post comments error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching comments',
-      });
+      next(error);
    }
 };
 
 /**
  * Get replies for a comment
  */
-const getCommentReplies = async (req, res) => {
+const getCommentReplies = async (req, res, next) => {
    try {
       const { commentId } = req.params;
       const userId = req.user?.id;
@@ -261,10 +245,7 @@ const getCommentReplies = async (req, res) => {
       });
 
       if (!comment) {
-         return res.status(404).json({
-            success: false,
-            error: 'Comment not found',
-         });
+         throw new NotFoundError('Comment not found');
       }
 
       const replies = await prisma.comment.findMany({
@@ -305,30 +286,25 @@ const getCommentReplies = async (req, res) => {
          reactions: undefined,
       }));
 
-      res.json({
-         success: true,
-         data: {
-            replies: processedReplies,
-            pagination: {
-               limit: parseInt(limit),
-               offset: parseInt(offset),
-               hasMore: replies.length === parseInt(limit),
-            },
-         },
-      });
+      return paginatedResponse(
+         res,
+         { replies: processedReplies },
+         {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            hasMore: replies.length === parseInt(limit),
+         }
+      );
    } catch (error) {
       console.error('Get comment replies error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while fetching replies',
-      });
+      next(error);
    }
 };
 
 /**
  * Update comment
  */
-const updateComment = async (req, res) => {
+const updateComment = async (req, res, next) => {
    try {
       const { id } = req.params;
       const { content } = req.body;
@@ -340,17 +316,11 @@ const updateComment = async (req, res) => {
       });
 
       if (!existingComment) {
-         return res.status(404).json({
-            success: false,
-            error: 'Comment not found',
-         });
+         throw new NotFoundError('Comment not found');
       }
 
       if (existingComment.authorId !== userId) {
-         return res.status(403).json({
-            success: false,
-            error: 'Access denied: You can only edit your own comments',
-         });
+         throw new ValidationError('Access denied: You can only edit your own comments');
       }
 
       // Update comment
@@ -386,24 +356,17 @@ const updateComment = async (req, res) => {
          io.emit('comment:updated', updatedComment);
       }
 
-      res.json({
-         success: true,
-         message: 'Comment updated successfully',
-         data: { comment: updatedComment },
-      });
+      return successResponse(res, { comment: updatedComment }, 'Comment updated successfully');
    } catch (error) {
       console.error('Update comment error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while updating comment',
-      });
+      next(error);
    }
 };
 
 /**
  * Delete comment
  */
-const deleteComment = async (req, res) => {
+const deleteComment = async (req, res, next) => {
    try {
       const { id } = req.params;
       const userId = req.user.id;
@@ -414,17 +377,11 @@ const deleteComment = async (req, res) => {
       });
 
       if (!existingComment) {
-         return res.status(404).json({
-            success: false,
-            error: 'Comment not found',
-         });
+         throw new NotFoundError('Comment not found');
       }
 
       if (existingComment.authorId !== userId) {
-         return res.status(403).json({
-            success: false,
-            error: 'Access denied: You can only delete your own comments',
-         });
+         throw new ValidationError('Access denied: You can only delete your own comments');
       }
 
       // Delete comment (cascade will handle replies and reactions)
@@ -438,16 +395,10 @@ const deleteComment = async (req, res) => {
          io.emit('comment:deleted', { id, postId: existingComment.postId });
       }
 
-      res.json({
-         success: true,
-         message: 'Comment deleted successfully',
-      });
+      return successResponse(res, null, 'Comment deleted successfully');
    } catch (error) {
       console.error('Delete comment error:', error);
-      res.status(500).json({
-         success: false,
-         error: 'Internal server error while deleting comment',
-      });
+      next(error);
    }
 };
 
