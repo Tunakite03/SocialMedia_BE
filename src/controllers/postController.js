@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const sentimentService = require('../services/sentimentService');
+const uploadService = require('../services/uploadService');
 const { validatePaginationParams, createPaginationConfig, processPaginatedResults } = require('../utils/pagination');
 const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
 const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
@@ -12,14 +13,49 @@ const createPost = async (req, res, next) => {
       const { content, type = 'TEXT', isPublic = true } = req.body;
       const userId = req.user.id;
 
+      // Convert string values to proper types for multipart/form-data
+      const isPublicBool = isPublic === 'true' || isPublic === true;
+
+      // Validate content if no file is uploaded
+      if (!content && !req.file) {
+         throw new ValidationError('Post content or media is required');
+      }
+
+      let mediaUrl = null;
+      let postType = type.toUpperCase();
+
+      // Handle image upload if file is present
+      if (req.file) {
+         try {
+            // File is already uploaded to Cloudinary via multer-storage-cloudinary
+            mediaUrl = req.file.path; // Cloudinary secure_url
+
+            // Auto-detect post type based on uploaded file
+            if (req.file.mimetype.startsWith('image/')) {
+               postType = 'IMAGE';
+            }
+         } catch (uploadError) {
+            console.error('Error processing uploaded file:', uploadError);
+            throw new ValidationError('Failed to process uploaded file');
+         }
+      }
+
+      // Create post data
+      const postData = {
+         content: content || '',
+         type: postType,
+         isPublic: isPublicBool,
+         authorId: userId,
+      };
+
+      // Add mediaUrl if present
+      if (mediaUrl) {
+         postData.mediaUrl = mediaUrl;
+      }
+
       // Create post
       const post = await prisma.post.create({
-         data: {
-            content,
-            type,
-            isPublic,
-            authorId: userId,
-         },
+         data: postData,
          include: {
             author: {
                select: {
@@ -38,19 +74,30 @@ const createPost = async (req, res, next) => {
          },
       });
 
-      // Analyze sentiment asynchronously (don't wait for it)
-      sentimentService.analyzeSentiment(content, userId, post.id, 'post').catch((error) => {
-         console.error('Error analyzing post sentiment:', error);
-      });
+      // Analyze sentiment asynchronously (don't wait for it) - only if there's text content
+      if (content && content.trim()) {
+         sentimentService.analyzeSentiment(content, userId, post.id, 'post').catch((error) => {
+            console.error('Error analyzing post sentiment:', error);
+         });
+      }
 
       // Emit to Socket.IO for real-time updates
       const io = req.app.get('socketio');
-      if (io && isPublic) {
+      if (io && isPublicBool) {
          io.emit('post:new', post);
       }
 
       return successResponse(res, { post }, 'Post created successfully', HTTP_STATUS.CREATED);
    } catch (error) {
+      // If there was an uploaded file and post creation failed, try to clean up
+      if (req.file && req.file.filename) {
+         try {
+            await uploadService.deleteImage(req.file.filename);
+         } catch (cleanupError) {
+            console.error('Error cleaning up uploaded file:', cleanupError);
+         }
+      }
+
       console.error('Create post error:', error);
       next(error);
    }
@@ -204,13 +251,40 @@ const updatePost = async (req, res, next) => {
          throw new ValidationError('Access denied: You can only edit your own posts');
       }
 
+      // Prepare update data
+      const updateData = {};
+
+      // Update content if provided
+      if (content !== undefined) {
+         updateData.content = content;
+      }
+
+      // Update visibility if provided (convert string to boolean for multipart/form-data)
+      if (isPublic !== undefined) {
+         updateData.isPublic = isPublic === 'true' || isPublic === true;
+      }
+
+      // Handle new media upload
+      let oldMediaUrl = existingPost.mediaUrl;
+      if (req.file) {
+         try {
+            // File is already uploaded to Cloudinary via multer-storage-cloudinary
+            updateData.mediaUrl = req.file.path; // Cloudinary secure_url
+
+            // Auto-detect post type based on uploaded file
+            if (req.file.mimetype.startsWith('image/')) {
+               updateData.type = 'IMAGE';
+            }
+         } catch (uploadError) {
+            console.error('Error processing uploaded file:', uploadError);
+            throw new ValidationError('Failed to process uploaded file');
+         }
+      }
+
       // Update post
       const updatedPost = await prisma.post.update({
          where: { id },
-         data: {
-            content,
-            isPublic,
-         },
+         data: updateData,
          include: {
             author: {
                select: {
@@ -229,8 +303,22 @@ const updatePost = async (req, res, next) => {
          },
       });
 
+      // Clean up old media if new media was uploaded
+      if (req.file && oldMediaUrl) {
+         try {
+            // Extract public_id from Cloudinary URL to delete old image
+            const publicIdMatch = oldMediaUrl.match(/\/([^\/]+)\.\w+$/);
+            if (publicIdMatch && publicIdMatch[1]) {
+               await uploadService.deleteImage(`onway/posts/${publicIdMatch[1]}`);
+            }
+         } catch (cleanupError) {
+            console.error('Error cleaning up old media:', cleanupError);
+            // Don't fail the request if cleanup fails
+         }
+      }
+
       // Re-analyze sentiment if content changed
-      if (content && content !== existingPost.content) {
+      if (content && content !== existingPost.content && content.trim()) {
          sentimentService.analyzeSentiment(content, userId, id, 'post').catch((error) => {
             console.error('Error re-analyzing post sentiment:', error);
          });
@@ -244,6 +332,15 @@ const updatePost = async (req, res, next) => {
 
       return successResponse(res, { post: updatedPost }, 'Post updated successfully');
    } catch (error) {
+      // If there was an uploaded file and post update failed, try to clean up
+      if (req.file && req.file.filename) {
+         try {
+            await uploadService.deleteImage(req.file.filename);
+         } catch (cleanupError) {
+            console.error('Error cleaning up uploaded file:', cleanupError);
+         }
+      }
+
       console.error('Update post error:', error);
       next(error);
    }
@@ -274,6 +371,20 @@ const deletePost = async (req, res, next) => {
       await prisma.post.delete({
          where: { id },
       });
+
+      // Clean up media if exists
+      if (existingPost.mediaUrl) {
+         try {
+            // Extract public_id from Cloudinary URL to delete image
+            const publicIdMatch = existingPost.mediaUrl.match(/\/([^\/]+)\.\w+$/);
+            if (publicIdMatch && publicIdMatch[1]) {
+               await uploadService.deleteImage(`onway/posts/${publicIdMatch[1]}`);
+            }
+         } catch (cleanupError) {
+            console.error('Error cleaning up media:', cleanupError);
+            // Don't fail the request if cleanup fails
+         }
+      }
 
       // Emit to Socket.IO
       const io = req.app.get('socketio');

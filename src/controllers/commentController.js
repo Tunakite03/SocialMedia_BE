@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const sentimentService = require('../services/sentimentService');
+const notificationService = require('../services/notificationService');
 const { successResponse, errorResponse, paginatedResponse } = require('../utils/responseFormatter');
 const {
    NotFoundError,
@@ -80,16 +81,11 @@ const createComment = async (req, res, next) => {
 
       // Create notification for post author (if not commenting on own post)
       if (post.authorId !== userId) {
-         await prisma.notification.create({
-            data: {
-               type: 'COMMENT',
-               title: 'New Comment',
-               message: `${req.user.displayName} commented on your post`,
-               receiverId: post.authorId,
-               senderId: userId,
-               entityId: comment.id,
-               entityType: 'comment',
-            },
+         await notificationService.createCommentNotification({
+            authorId: userId,
+            postId,
+            postAuthorId: post.authorId,
+            content,
          });
 
          // Emit notification via Socket.IO

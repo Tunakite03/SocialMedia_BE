@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
 const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
+const notificationService = require('../services/notificationService');
 
 /**
  * Get user by ID
@@ -163,14 +164,9 @@ const followUser = async (req, res, next) => {
       });
 
       // Create notification
-      await prisma.notification.create({
-         data: {
-            type: 'FOLLOW',
-            title: 'New Follower',
-            message: `${req.user.displayName} started following you`,
-            receiverId: id,
-            senderId: req.user.id,
-         },
+      await notificationService.createFollowNotification({
+         followerId: req.user.id,
+         followingId: id,
       });
 
       return successResponse(res, null, 'User followed successfully');

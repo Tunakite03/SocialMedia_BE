@@ -70,7 +70,7 @@ const schemas = {
 
    // Create post
    createPost: Joi.object({
-      content: Joi.string().max(2000).required(),
+      content: Joi.string().max(2000).allow('').optional(),
       type: Joi.string().valid('TEXT', 'IMAGE', 'VIDEO').default('TEXT'),
       isPublic: Joi.boolean().default(true),
    }),

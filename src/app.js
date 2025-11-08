@@ -14,6 +14,7 @@ const { errorHandler, notFound } = require('./middlewares/errorMiddleware');
 const socketHandler = require('./sockets/socketHandler');
 const prisma = require('./config/database');
 const { testCloudinaryConnection } = require('./config/cloudinary');
+const { swaggerUi, specs } = require('./config/swagger');
 
 const app = express();
 const server = createServer(app);
@@ -115,6 +116,9 @@ app.get('/health', (req, res) => {
       uptime: process.uptime(),
    });
 });
+
+// ===== Swagger Documentation =====
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 // ===== API routes =====
 app.use('/api/v1', require('./routes'));

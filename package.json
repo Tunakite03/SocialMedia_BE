@@ -16,6 +16,7 @@
       "db:stop": "docker-compose -f docker-compose.db.yml down",
       "db:logs": "docker-compose -f docker-compose.db.yml logs -f",
       "db:reset": "docker-compose -f docker-compose.db.yml down -v",
+      "docs": "echo 'Swagger docs available at http://localhost:8080/api-docs'",
       "logs": "./view-logs.sh",
       "logs:all": "./view-logs.sh all",
       "logs:error": "./view-logs.sh error",
@@ -55,6 +56,8 @@
       "node-cron": "^3.0.3",
       "nodemailer": "^7.0.10",
       "socket.io": "^4.7.4",
+      "swagger-jsdoc": "^6.2.8",
+      "swagger-ui-express": "^5.0.1",
       "uuid": "^9.0.1",
       "winston": "^3.18.3"
    },

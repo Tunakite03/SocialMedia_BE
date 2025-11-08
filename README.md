@@ -103,43 +103,104 @@ The main API will be available at `http://localhost:3000`
 
 ## 📚 API Documentation
 
-### Authentication Endpoints
+### Swagger/OpenAPI Documentation
 
--  `POST /api/auth/register` - Register new user
--  `POST /api/auth/login` - Login user
--  `POST /api/auth/logout` - Logout user
--  `GET /api/auth/profile` - Get current user profile
--  `PUT /api/auth/profile` - Update user profile
--  `PUT /api/auth/password` - Change password
+The API is fully documented using Swagger/OpenAPI 3.0 specification.
 
-### User Endpoints
+**Access the interactive API documentation:**
 
--  `GET /api/users/search` - Search users
--  `GET /api/users/:id` - Get user by ID
--  `POST /api/users/:id/follow` - Follow user
--  `DELETE /api/users/:id/follow` - Unfollow user
--  `GET /api/users/:id/followers` - Get user followers
--  `GET /api/users/:id/following` - Get user following
+-  **Development**: http://localhost:8080/api-docs
+-  **Production**: https://your-domain.com/api-docs
 
-### Post Endpoints
+The Swagger UI provides:
 
--  `GET /api/posts/feed` - Get posts feed
--  `POST /api/posts` - Create new post
--  `GET /api/posts/:id` - Get post by ID
--  `PUT /api/posts/:id` - Update post
--  `DELETE /api/posts/:id` - Delete post
--  `GET /api/posts/user/:userId` - Get user posts
--  `POST /api/posts/:postId/reactions` - Add reaction to post
--  `GET /api/posts/:postId/reactions` - Get post reactions
+-  Interactive API testing
+-  Complete endpoint documentation
+-  Request/response examples
+-  Authentication integration
+-  Schema definitions
 
-### Comment Endpoints
+```bash
+# View documentation URL
+npm run docs
+```
 
--  `GET /api/comments/post/:postId` - Get post comments
--  `POST /api/comments/post/:postId` - Create comment
--  `GET /api/comments/:commentId/replies` - Get comment replies
--  `PUT /api/comments/:id` - Update comment
--  `DELETE /api/comments/:id` - Delete comment
--  `POST /api/comments/:commentId/reactions` - Add reaction to comment
+### Authentication
+
+All protected endpoints require JWT authentication. Include the token in the `Authorization` header:
+
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+### API Endpoints Overview
+
+#### Authentication Endpoints
+
+-  `POST /api/v1/auth/register` - Register new user
+-  `POST /api/v1/auth/login` - Login user
+-  `POST /api/v1/auth/logout` - Logout user
+-  `GET /api/v1/auth/profile` - Get current user profile
+-  `PUT /api/v1/auth/profile` - Update user profile
+-  `PUT /api/v1/auth/password` - Change password
+-  `POST /api/v1/auth/forgot-password` - Request password reset
+-  `POST /api/v1/auth/reset-password` - Reset password
+-  `GET /api/v1/auth/verify` - Verify token
+
+#### User Management
+
+-  `GET /api/v1/users/search` - Search users
+-  `GET /api/v1/users/{id}` - Get user by ID
+-  `POST /api/v1/users/{id}/follow` - Follow user
+-  `DELETE /api/v1/users/{id}/follow` - Unfollow user
+-  `GET /api/v1/users/{id}/followers` - Get user followers
+-  `GET /api/v1/users/{id}/following` - Get user following
+
+#### Posts & Social Features
+
+-  `GET /api/v1/posts/feed` - Get posts feed
+-  `POST /api/v1/posts` - Create new post
+-  `GET /api/v1/posts/{id}` - Get post by ID
+-  `PUT /api/v1/posts/{id}` - Update post
+-  `DELETE /api/v1/posts/{id}` - Delete post
+-  `GET /api/v1/posts/user/{userId}` - Get user posts
+-  `POST /api/v1/posts/{postId}/reactions` - Add reaction to post
+-  `GET /api/v1/posts/{postId}/reactions` - Get post reactions
+
+#### Comments
+
+-  `GET /api/v1/comments/post/{postId}` - Get post comments
+-  `POST /api/v1/comments/post/{postId}` - Create comment
+-  `GET /api/v1/comments/{commentId}/replies` - Get comment replies
+-  `PUT /api/v1/comments/{id}` - Update comment
+-  `DELETE /api/v1/comments/{id}` - Delete comment
+-  `POST /api/v1/comments/{commentId}/reactions` - Add reaction to comment
+
+#### Notifications
+
+-  `GET /api/v1/notifications` - Get user notifications
+-  `PUT /api/v1/notifications/{id}/read` - Mark notification as read
+-  `PUT /api/v1/notifications/read-all` - Mark all notifications as read
+
+#### Messages & Communication
+
+-  `GET /api/v1/messages/conversations` - Get user conversations
+-  `POST /api/v1/messages/conversations` - Create conversation
+-  `GET /api/v1/messages/conversations/{id}` - Get conversation messages
+-  `POST /api/v1/messages/conversations/{id}` - Send message
+-  `PUT /api/v1/messages/{id}/read` - Mark message as read
+
+#### Calls
+
+-  `POST /api/v1/calls/initiate` - Initiate call
+-  `PUT /api/v1/calls/{id}/response` - Respond to call
+-  `PUT /api/v1/calls/{id}/end` - End call
+-  `GET /api/v1/calls/history` - Get call history
+
+#### File Upload
+
+-  `POST /api/v1/upload` - Upload file
+-  `DELETE /api/v1/upload/{filename}` - Delete uploaded file
 
 ## 🔌 Socket.IO Events
 

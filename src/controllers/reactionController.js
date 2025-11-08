@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
 const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
+const notificationService = require('../services/notificationService');
 
 /**
  * Add or update reaction to post
@@ -74,16 +75,10 @@ const addPostReaction = async (req, res, next) => {
 
       // Create notification for post author (if not reacting to own post and reaction was added)
       if (action === 'added' && post.authorId !== userId) {
-         await prisma.notification.create({
-            data: {
-               type: 'LIKE',
-               title: 'New Reaction',
-               message: `${req.user.displayName} reacted to your post`,
-               receiverId: post.authorId,
-               senderId: userId,
-               entityId: postId,
-               entityType: 'post',
-            },
+         await notificationService.createLikeNotification({
+            userId,
+            postId,
+            postAuthorId: post.authorId,
          });
 
          // Emit notification via Socket.IO
@@ -211,16 +206,14 @@ const addCommentReaction = async (req, res, next) => {
 
       // Create notification for comment author (if not reacting to own comment and reaction was added)
       if (action === 'added' && comment.authorId !== userId) {
-         await prisma.notification.create({
-            data: {
-               type: 'LIKE',
-               title: 'New Reaction',
-               message: `${req.user.displayName} reacted to your comment`,
-               receiverId: comment.authorId,
-               senderId: userId,
-               entityId: commentId,
-               entityType: 'comment',
-            },
+         await notificationService.createNotification({
+            type: 'LIKE',
+            title: 'New Reaction',
+            message: `${req.user.displayName} reacted to your comment`,
+            receiverId: comment.authorId,
+            senderId: userId,
+            entityId: commentId,
+            entityType: 'comment',
          });
 
          // Emit notification via Socket.IO

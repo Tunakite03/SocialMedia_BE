@@ -1,8 +1,36 @@
 # OnWay Backend API Specifications
 
-**Version:** 1.0.0  
+**Version:** 1.2.0  
+**Last Updated:** November 8, 2025  
 **Base URL:** `http://localhost:8080/api/v1` (Development) | `https://otakomi-backend.onrender.com/api/v1` (Production)  
 **Socket.IO:** `ws://localhost:8080` (Development) | `wss://otakomi-backend.onrender.com` (Production)
+
+## Changelog
+
+### Version 1.2.0 (November 8, 2025)
+
+-  ✅ **Complete Notification API Implementation**
+   -  GET `/notifications`: Retrieve paginated user notifications with cursor-based pagination
+   -  PUT `/notifications/{id}/read`: Mark specific notification as read
+   -  PUT `/notifications/read-all`: Mark all user notifications as read
+   -  Real-time notification delivery via Socket.IO events
+   -  Automatic notification creation for likes, comments, follows, and mentions
+   -  Comprehensive notification types: LIKE, COMMENT, FOLLOW, MESSAGE, CALL, MENTION
+   -  Notification metadata including sender info, entity references, and timestamps
+
+### Version 1.1.0 (November 8, 2025)
+
+-  ✅ **Enhanced Post Creation & Updates with Image Upload**
+   -  Support for multipart/form-data uploads in POST `/posts` and PUT `/posts/{id}`
+   -  Auto-detection of post type based on uploaded media
+   -  Flexible validation: content or media required (not both)
+   -  Automatic Cloudinary integration with image optimization
+   -  Media cleanup on post updates and deletions
+-  ✅ **Updated API Documentation**
+   -  Comprehensive examples for image upload scenarios
+   -  Frontend integration guidelines and code samples
+   -  Media management best practices
+   -  Error handling for file uploads
 
 ## Table of Contents
 
@@ -11,11 +39,12 @@
 3. [Posts](#3-posts)
 4. [Comments](#4-comments)
 5. [Reactions](#5-reactions)
-6. [Upload](#6-upload)
-7. [Real-time Features (Socket.IO)](#7-real-time-features-socketio)
-8. [Sentiment Analysis Service](#8-sentiment-analysis-service)
-9. [Error Responses](#9-error-responses)
-10.   [Data Models](#10-data-models)
+6. [Notifications](#6-notifications)
+7. [Upload](#7-upload)
+8. [Real-time Features (Socket.IO)](#8-real-time-features-socketio)
+9. [Sentiment Analysis Service](#9-sentiment-analysis-service)
+10.   [Error Responses](#10-error-responses)
+11.   [Data Models](#11-data-models)
 
 ---
 
@@ -435,10 +464,11 @@
 ### 3.2 Create Post
 
 -  **Endpoint:** `POST /posts`
--  **Description:** Create a new post
+-  **Description:** Create a new post (supports text and image uploads)
 -  **Authentication:** Bearer token required
+-  **Content-Type:** `multipart/form-data` (for image uploads) or `application/json` (for text-only posts)
 
-**Request Body:**
+#### Request (Text-only post):
 
 ```json
 {
@@ -448,7 +478,26 @@
 }
 ```
 
-**Response (201):**
+#### Request (Post with image - multipart/form-data):
+
+```
+Content-Type: multipart/form-data
+
+content: "Check out this amazing photo!" (optional)
+type: TEXT (optional)
+isPublic: true (optional)
+media: [binary image file] (JPEG, PNG, GIF, WEBP - max 5MB)
+```
+
+#### Validation Rules:
+
+-  At least one of `content` or `media` must be provided
+-  `content` maximum 2000 characters (optional when media is provided)
+-  Supported image types: JPEG, PNG, GIF, WEBP
+-  Maximum file size: 5MB
+-  Type auto-detection: automatically set to 'IMAGE' when uploading media
+
+#### Response (201):
 
 ```json
 {
@@ -457,9 +506,9 @@
    "data": {
       "post": {
          "id": "uuid",
-         "content": "This is my first post!",
-         "type": "TEXT",
-         "mediaUrl": null,
+         "content": "Check out this amazing photo!",
+         "type": "IMAGE",
+         "mediaUrl": "https://res.cloudinary.com/your-cloud/image.jpg",
          "isPublic": true,
          "author": {
             "id": "uuid",
@@ -476,6 +525,35 @@
       }
    }
 }
+```
+
+#### Example Requests:
+
+**Text-only post (JSON):**
+
+```bash
+curl -X POST http://localhost:8080/api/posts \
+  -H "Authorization: Bearer your_token" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Hello world!", "isPublic": true}'
+```
+
+**Post with image (multipart):**
+
+```bash
+curl -X POST http://localhost:8080/api/posts \
+  -H "Authorization: Bearer your_token" \
+  -F "content=Check out this photo!" \
+  -F "isPublic=true" \
+  -F "media=@/path/to/image.jpg"
+```
+
+**Image-only post (multipart):**
+
+```bash
+curl -X POST http://localhost:8080/api/posts \
+  -H "Authorization: Bearer your_token" \
+  -F "media=@/path/to/image.jpg"
 ```
 
 ### 3.3 Get Post by ID
@@ -517,10 +595,11 @@
 ### 3.4 Update Post
 
 -  **Endpoint:** `PUT /posts/{id}`
--  **Description:** Update a post (only by post owner)
+-  **Description:** Update a post (only by post owner) - supports updating content and/or replacing media
 -  **Authentication:** Bearer token required
+-  **Content-Type:** `multipart/form-data` (when updating media) or `application/json` (for content-only updates)
 
-**Request Body:**
+#### Request (Update content only - JSON):
 
 ```json
 {
@@ -529,19 +608,87 @@
 }
 ```
 
-**Response (200):**
+#### Request (Update with new media - multipart/form-data):
+
+```
+Content-Type: multipart/form-data
+
+content: "Updated content with new image" (optional)
+isPublic: true (optional)
+media: [binary image file] (optional - replaces existing media)
+```
+
+#### Features:
+
+-  Update text content without affecting media
+-  Replace existing media with new image (old image is automatically deleted from Cloudinary)
+-  Update visibility settings
+-  All fields are optional - send only what you want to update
+
+#### Response (200):
 
 ```json
 {
    "success": true,
-   "message": "Post updated successfully"
+   "message": "Post updated successfully",
+   "data": {
+      "post": {
+         "id": "uuid",
+         "content": "Updated content with new image",
+         "type": "IMAGE",
+         "mediaUrl": "https://res.cloudinary.com/your-cloud/new-image.jpg",
+         "isPublic": true,
+         "author": {
+            "id": "uuid",
+            "username": "johndoe",
+            "displayName": "John Doe",
+            "avatar": "https://cloudinary.com/avatar.jpg"
+         },
+         "_count": {
+            "comments": 5,
+            "reactions": 12
+         },
+         "createdAt": "2023-11-05T10:30:00Z",
+         "updatedAt": "2023-11-05T11:00:00Z"
+      }
+   }
 }
 ```
+
+#### Example Requests:
+
+**Update content only (JSON):**
+
+```bash
+curl -X PUT http://localhost:8080/api/posts/uuid \
+  -H "Authorization: Bearer your_token" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Updated content"}'
+```
+
+**Update with new image (multipart):**
+
+```bash
+curl -X PUT http://localhost:8080/api/posts/uuid \
+  -H "Authorization: Bearer your_token" \
+  -F "content=Updated content with new image" \
+  -F "media=@/path/to/new-image.jpg"
+```
+
+**Replace image only (multipart):**
+
+```bash
+curl -X PUT http://localhost:8080/api/posts/uuid \
+  -H "Authorization: Bearer your_token" \
+  -F "media=@/path/to/new-image.jpg"
+```
+
+````
 
 ### 3.5 Delete Post
 
 -  **Endpoint:** `DELETE /posts/{id}`
--  **Description:** Delete a post (only by post owner)
+-  **Description:** Delete a post (only by post owner) - automatically cleans up associated media from Cloudinary
 -  **Authentication:** Bearer token required
 
 **Response (200):**
@@ -551,7 +698,11 @@
    "success": true,
    "message": "Post deleted successfully"
 }
-```
+````
+
+**Note:** When a post with media is deleted, the associated image is automatically removed from Cloudinary storage.
+
+````
 
 ### 3.6 Get User Posts
 
@@ -599,7 +750,7 @@
       }
    }
 }
-```
+````
 
 ---
 
@@ -887,9 +1038,93 @@
 
 ---
 
-## 6. Upload
+## 6. Notifications
 
-### 6.1 Upload Single Image
+### 6.1 Get User Notifications
+
+-  **Endpoint:** `GET /notifications`
+-  **Description:** Get paginated list of notifications for the authenticated user
+-  **Authentication:** Bearer token required
+
+**Query Parameters:**
+
+-  `limit` (optional): Number of notifications (default: 10)
+-  `offset` (optional): Offset for pagination (default: 0)
+-  `cursor` (optional): Cursor for pagination (ISO date string)
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "data": {
+      "notifications": [
+         {
+            "id": "uuid",
+            "type": "LIKE",
+            "title": "New Reaction",
+            "message": "John Doe reacted to your post",
+            "isRead": false,
+            "receiverId": "uuid",
+            "sender": {
+               "id": "uuid",
+               "username": "johndoe",
+               "displayName": "John Doe",
+               "avatar": "https://cloudinary.com/avatar.jpg"
+            },
+            "entityId": "uuid",
+            "entityType": "post",
+            "createdAt": "2023-11-05T10:30:00Z"
+         }
+      ]
+   },
+   "pagination": {
+      "limit": 10,
+      "offset": 0,
+      "hasMore": true,
+      "nextCursor": "2023-11-05T10:25:00Z"
+   }
+}
+```
+
+### 6.2 Mark Notification as Read
+
+-  **Endpoint:** `PUT /notifications/{id}/read`
+-  **Description:** Mark a specific notification as read
+-  **Authentication:** Bearer token required
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "message": "Notification marked as read"
+}
+```
+
+### 6.3 Mark All Notifications as Read
+
+-  **Endpoint:** `PUT /notifications/read-all`
+-  **Description:** Mark all unread notifications as read for the authenticated user
+-  **Authentication:** Bearer token required
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "message": "All notifications marked as read",
+   "data": {
+      "updatedCount": 5
+   }
+}
+```
+
+---
+
+## 7. Upload
+
+### 7.1 Upload Single Image
 
 -  **Endpoint:** `POST /upload/image`
 -  **Description:** Upload a single image file
@@ -918,7 +1153,7 @@ image: [binary file]
 }
 ```
 
-### 6.2 Upload Multiple Images
+### 7.2 Upload Multiple Images
 
 -  **Endpoint:** `POST /upload/images`
 -  **Description:** Upload multiple image files (max 10)
@@ -960,9 +1195,9 @@ images: [binary file 2]
 
 ---
 
-## 7. Real-time Features (Socket.IO)
+## 8. Real-time Features (Socket.IO)
 
-### 7.1 Connection Setup
+### 8.1 Connection Setup
 
 **Connection URL:**
 
@@ -979,9 +1214,9 @@ const socket = io('ws://localhost:8080', {
 });
 ```
 
-### 7.2 Connection Events
+### 8.2 Connection Events
 
-#### 7.2.1 User Status Events
+#### 8.2.1 User Status Events
 
 **Event: `user:online`**
 
@@ -1046,7 +1281,7 @@ socket.on('users:online', (users) => {
 });
 ```
 
-#### 7.2.2 Post Events
+#### 8.2.2 Post Events
 
 **Event: `post:new`**
 
@@ -1099,7 +1334,7 @@ socket.on('post:deleted', (data) => {
 });
 ```
 
-#### 7.2.3 Comment Events
+#### 8.2.3 Comment Events
 
 **Event: `comment:new`**
 
@@ -1153,9 +1388,9 @@ socket.on('comment:deleted', (data) => {
 });
 ```
 
-### 7.3 Messaging Events
+### 8.3 Messaging Events
 
-#### 7.3.1 Conversation Management
+#### 8.3.1 Conversation Management
 
 **Event: `conversation:join`**
 
@@ -1179,7 +1414,7 @@ socket.emit('conversation:leave', {
 });
 ```
 
-#### 7.3.2 Messaging
+#### 8.3.2 Messaging
 
 **Event: `message:send`**
 
@@ -1277,7 +1512,7 @@ socket.on('message:error', (error) => {
 });
 ```
 
-#### 7.3.3 Typing Indicators
+#### 8.3.3 Typing Indicators
 
 **Event: `typing:start`**
 
@@ -1330,7 +1565,7 @@ socket.on('typing:stop', (data) => {
 });
 ```
 
-### 7.4 Notification Events
+### 8.4 Notification Events
 
 **Event: `notification:send`**
 
@@ -1376,9 +1611,9 @@ socket.on('notification:new', (notification) => {
 });
 ```
 
-### 7.5 Call Events (WebRTC)
+### 8.5 Call Events (WebRTC)
 
-#### 7.5.1 Call Management
+#### 8.5.1 Call Management
 
 **Event: `call:initiate`**
 
@@ -1499,7 +1734,7 @@ socket.on('call:error', (error) => {
 });
 ```
 
-#### 7.5.2 WebRTC Signaling
+#### 8.5.2 WebRTC Signaling
 
 **Event: `webrtc:offer`**
 
@@ -1579,7 +1814,7 @@ socket.on('webrtc:ice-candidate', (data) => {
 });
 ```
 
-### 7.6 Connection Health
+### 8.6 Connection Health
 
 **Event: `ping`**
 
@@ -1603,11 +1838,11 @@ socket.on('pong', () => {
 
 ---
 
-## 8. Sentiment Analysis Service
+## 9. Sentiment Analysis Service
 
 **Base URL:** `http://localhost:8000` (Development)
 
-### 8.1 Health Check
+### 9.1 Health Check
 
 -  **Endpoint:** `GET /health`
 -  **Description:** Check if sentiment service is healthy and model is loaded
@@ -1623,7 +1858,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 8.2 Analyze Single Text
+### 9.2 Analyze Single Text
 
 -  **Endpoint:** `POST /analyze`
 -  **Description:** Analyze sentiment of a single text
@@ -1655,7 +1890,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 8.3 Analyze Batch Texts
+### 9.3 Analyze Batch Texts
 
 -  **Endpoint:** `POST /analyze/batch`
 -  **Description:** Analyze sentiment of multiple texts
@@ -1713,7 +1948,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 8.4 Get Model Information
+### 9.4 Get Model Information
 
 -  **Endpoint:** `GET /models/info`
 -  **Description:** Get information about the loaded model
@@ -1734,9 +1969,116 @@ socket.on('pong', () => {
 
 ---
 
-## 9. Error Responses
+## 9.5 Media Upload Guidelines
 
-### 9.1 Validation Error (400)
+### 9.5.1 Supported File Types
+
+-  **Images:** JPEG, PNG, GIF, WEBP
+-  **Maximum file size:** 5MB per file
+-  **Automatic optimization:** Images are automatically optimized and resized by Cloudinary
+
+### 9.5.2 Post Creation with Media
+
+-  **Text + Media:** Both content and media can be provided
+-  **Media-only posts:** Content can be empty when media is uploaded
+-  **Auto-type detection:** Post type automatically set to 'IMAGE' when media is uploaded
+-  **Validation:** At least one of content or media must be provided
+
+### 9.5.3 Media Management
+
+-  **Storage:** All media stored on Cloudinary with automatic optimization
+-  **Cleanup:** Old media automatically deleted when posts are updated or deleted
+-  **CDN:** Media served via Cloudinary CDN for optimal performance
+-  **Security:** File type validation and size limits enforced
+
+### 9.5.4 Frontend Integration Examples
+
+#### JavaScript - Create Post with Image
+
+```javascript
+async function createPostWithImage(content, imageFile) {
+   const formData = new FormData();
+
+   if (content.trim()) {
+      formData.append('content', content);
+   }
+
+   if (imageFile) {
+      formData.append('media', imageFile);
+   }
+
+   const response = await fetch('/api/posts', {
+      method: 'POST',
+      headers: {
+         Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+   });
+
+   return response.json();
+}
+```
+
+#### JavaScript - Update Post with New Image
+
+```javascript
+async function updatePostWithImage(postId, content, imageFile) {
+   const formData = new FormData();
+
+   if (content !== undefined) {
+      formData.append('content', content);
+   }
+
+   if (imageFile) {
+      formData.append('media', imageFile);
+   }
+
+   const response = await fetch(`/api/posts/${postId}`, {
+      method: 'PUT',
+      headers: {
+         Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+   });
+
+   return response.json();
+}
+```
+
+#### React Hook Example
+
+```javascript
+function usePostUpload() {
+   const [uploading, setUploading] = useState(false);
+
+   const uploadPost = async (content, file) => {
+      setUploading(true);
+      try {
+         const formData = new FormData();
+         if (content) formData.append('content', content);
+         if (file) formData.append('media', file);
+
+         const response = await fetch('/api/posts', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+         });
+
+         return await response.json();
+      } finally {
+         setUploading(false);
+      }
+   };
+
+   return { uploadPost, uploading };
+}
+```
+
+---
+
+## 10. Error Responses
+
+### 10.1 Validation Error (400)
 
 ```json
 {
@@ -1755,7 +2097,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 9.2 Authentication Error (401)
+### 10.2 Authentication Error (401)
 
 ```json
 {
@@ -1764,7 +2106,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 9.3 Authorization Error (403)
+### 10.3 Authorization Error (403)
 
 ```json
 {
@@ -1773,7 +2115,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 9.4 Not Found Error (404)
+### 10.4 Not Found Error (404)
 
 ```json
 {
@@ -1782,7 +2124,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 9.5 Conflict Error (409)
+### 10.5 Conflict Error (409)
 
 ```json
 {
@@ -1791,7 +2133,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 9.6 Server Error (500)
+### 10.6 Server Error (500)
 
 ```json
 {
@@ -1800,7 +2142,7 @@ socket.on('pong', () => {
 }
 ```
 
-### 9.7 File Upload Error (400)
+### 10.7 File Upload Error (400)
 
 ```json
 {
@@ -1811,9 +2153,9 @@ socket.on('pong', () => {
 
 ---
 
-## 10. Data Models
+## 11. Data Models
 
-### 10.1 User Model
+### 11.1 User Model
 
 ```typescript
 interface User {
@@ -1834,14 +2176,14 @@ interface User {
 }
 ```
 
-### 10.2 Post Model
+### 11.2 Post Model
 
 ```typescript
 interface Post {
    id: string;
-   content: string;
-   type: 'TEXT' | 'IMAGE' | 'VIDEO';
-   mediaUrl: string | null;
+   content: string; // Can be empty when mediaUrl is present
+   type: 'TEXT' | 'IMAGE' | 'VIDEO'; // Auto-detected based on media upload
+   mediaUrl: string | null; // Cloudinary URL for images/videos
    isPublic: boolean;
    authorId: string;
    author: User;
@@ -1855,7 +2197,7 @@ interface Post {
 }
 ```
 
-### 10.3 Comment Model
+### 11.3 Comment Model
 
 ```typescript
 interface Comment {
@@ -1875,7 +2217,7 @@ interface Comment {
 }
 ```
 
-### 10.4 Reaction Model
+### 11.4 Reaction Model
 
 ```typescript
 type ReactionType = 'LIKE' | 'LOVE' | 'LAUGH' | 'ANGRY' | 'SAD' | 'WOW';
@@ -1891,7 +2233,7 @@ interface Reaction {
 }
 ```
 
-### 10.5 Message Model
+### 11.5 Message Model
 
 ```typescript
 interface Message {
@@ -1911,7 +2253,7 @@ interface Message {
 }
 ```
 
-### 10.6 Conversation Model
+### 11.6 Conversation Model
 
 ```typescript
 interface Conversation {
@@ -1934,7 +2276,7 @@ interface ConversationParticipant {
 }
 ```
 
-### 10.7 Notification Model
+### 11.7 Notification Model
 
 ```typescript
 type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'CALL' | 'MENTION';
@@ -1955,7 +2297,7 @@ interface Notification {
 }
 ```
 
-### 10.8 Call Model
+### 11.8 Call Model
 
 ```typescript
 interface Call {
@@ -1973,7 +2315,7 @@ interface Call {
 }
 ```
 
-### 10.9 Follow Model
+### 11.9 Follow Model
 
 ```typescript
 interface Follow {
@@ -1986,7 +2328,7 @@ interface Follow {
 }
 ```
 
-### 10.10 Sentiment Analysis Model
+### 11.10 Sentiment Analysis Model
 
 ```typescript
 type SentimentType = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE';
@@ -2004,7 +2346,7 @@ interface SentimentAnalysis {
 }
 ```
 
-### 10.11 Pagination Model
+### 11.11 Pagination Model
 
 ```typescript
 interface Pagination {
