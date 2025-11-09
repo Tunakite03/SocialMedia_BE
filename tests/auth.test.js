@@ -1,6 +1,6 @@
 const request = require('supertest');
-const app = require('../../src/app');
-const { prisma } = require('../setup');
+const app = require('../src/app');
+const { prisma } = require('./setup');
 
 describe('Auth Endpoints', () => {
    let server;
@@ -19,14 +19,14 @@ describe('Auth Endpoints', () => {
             email: 'test@example.com',
             username: 'testuser',
             password: 'password123',
-            firstName: 'Test',
-            lastName: 'User',
+            displayName: 'Test User',
          };
 
          const response = await request(app).post('/api/auth/register').send(userData).expect(201);
 
          expect(response.body.success).toBe(true);
          expect(response.body.data.user.email).toBe(userData.email);
+         expect(response.body.data.user.avatar).toBeDefined(); // Check avatar is set
          expect(response.body.data.token).toBeDefined();
       });
 
@@ -35,8 +35,7 @@ describe('Auth Endpoints', () => {
             email: 'invalid-email',
             username: 'testuser',
             password: 'password123',
-            firstName: 'Test',
-            lastName: 'User',
+            displayName: 'Test User',
          };
 
          const response = await request(app).post('/api/auth/register').send(userData).expect(400);
@@ -52,8 +51,7 @@ describe('Auth Endpoints', () => {
             email: 'test@example.com',
             username: 'testuser',
             password: 'password123',
-            firstName: 'Test',
-            lastName: 'User',
+            displayName: 'Test User',
          });
       });
 

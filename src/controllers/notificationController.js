@@ -1,15 +1,14 @@
 'use strict';
 const prisma = require('../config/database');
 const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
-const { createPaginationConfig, processPaginatedResults, validatePaginationParams } = require('../utils/pagination');
-const Logger = require('../utils/logger');
 const {
-   NotFoundError,
-   ValidationError,
-   ERROR_MESSAGES,
-   SUCCESS_MESSAGES,
-   HTTP_STATUS,
-} = require('../constants/errors');
+   createPaginationConfig,
+   processPaginatedResults,
+   validatePaginationParams,
+   getEstimatedTotal,
+} = require('../utils/pagination');
+const Logger = require('../utils/logger');
+const { NotFoundError, SUCCESS_MESSAGES } = require('../constants/errors');
 
 /**
  * Get notifications for the authenticated user
@@ -58,6 +57,12 @@ const getNotifications = async (req, res, next) => {
 
       // Process paginated results
       const result = processPaginatedResults(notifications, paginationConfig);
+
+      // Calculate total count for simple queries
+      const total = await getEstimatedTotal(prisma, 'notification', { receiverId: userId });
+
+      // Update pagination with total count
+      result.pagination.total = total;
 
       Logger.info('Notifications fetched successfully', {
          userId,

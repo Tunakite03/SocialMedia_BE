@@ -1,11 +1,21 @@
 # OnWay Backend API Specifications
 
-**Version:** 1.2.0  
-**Last Updated:** November 8, 2025  
+**Version:** 1.3.0  
+**Last Updated:** November 10, 2025  
 **Base URL:** `http://localhost:8080/api/v1` (Development) | `https://otakomi-backend.onrender.com/api/v1` (Production)  
 **Socket.IO:** `ws://localhost:8080` (Development) | `wss://otakomi-backend.onrender.com` (Production)
 
 ## Changelog
+
+### Version 1.3.0 (November 10, 2025)
+
+-  ✅ **Enhanced Authentication with Refresh Tokens**
+   -  POST `/auth/refresh`: Exchange refresh token for new access and refresh tokens
+   -  Updated login and register endpoints to return both access and refresh tokens
+   -  Enhanced logout to invalidate refresh tokens for security
+   -  Token rotation: Each refresh generates new access AND refresh tokens
+   -  Improved security with short-lived access tokens (15 minutes) and long-lived refresh tokens (7 days)
+   -  Backward compatible with existing JWT token authentication
 
 ### Version 1.2.0 (November 8, 2025)
 
@@ -88,7 +98,8 @@
          "emailVerified": false,
          "createdAt": "2023-11-05T10:30:00Z"
       },
-      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "refreshToken": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"
    }
 }
 ```
@@ -125,15 +136,63 @@
          "isOnline": true,
          "lastSeen": "2023-11-05T10:30:00Z"
       },
-      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "refreshToken": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"
    }
 }
 ```
 
-### 1.3 Logout User
+### 1.3 Refresh Token
+
+-  **Endpoint:** `POST /auth/refresh`
+-  **Description:** Refresh access token using a valid refresh token
+-  **Authentication:** None required (uses refresh token for authentication)
+
+**Request Body:**
+
+```json
+{
+   "refreshToken": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"
+}
+```
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "message": "Token refreshed successfully",
+   "data": {
+      "user": {
+         "id": "uuid",
+         "email": "john.doe@example.com",
+         "username": "johndoe",
+         "displayName": "John Doe",
+         "avatar": "https://cloudinary.com/avatar.jpg",
+         "role": "USER",
+         "isOnline": true,
+         "lastSeen": "2023-11-05T10:30:00Z",
+         "createdAt": "2023-01-01T00:00:00Z"
+      },
+      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "refreshToken": "b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1"
+   }
+}
+```
+
+**Error Response (401):**
+
+```json
+{
+   "success": false,
+   "error": "Invalid or expired refresh token"
+}
+```
+
+### 1.4 Logout User
 
 -  **Endpoint:** `POST /auth/logout`
--  **Description:** Logout user and invalidate session
+-  **Description:** Logout user and invalidate session (clears refresh token)
 -  **Authentication:** Bearer token required
 
 **Response (200):**
@@ -145,7 +204,7 @@
 }
 ```
 
-### 1.4 Get User Profile
+### 1.5 Get User Profile
 
 -  **Endpoint:** `GET /auth/profile`
 -  **Description:** Get current user's profile information
@@ -175,7 +234,7 @@
 }
 ```
 
-### 1.5 Update User Profile
+### 1.6 Update User Profile
 
 -  **Endpoint:** `PUT /auth/profile`
 -  **Description:** Update current user's profile
@@ -191,7 +250,7 @@
 }
 ```
 
-### 1.6 Change Password
+### 1.7 Change Password
 
 -  **Endpoint:** `PUT /auth/password`
 -  **Description:** Change user's password
@@ -206,7 +265,7 @@
 }
 ```
 
-### 1.7 Verify Token
+### 1.8 Verify Token
 
 -  **Endpoint:** `GET /auth/verify`
 -  **Description:** Verify if current token is valid
@@ -2142,7 +2201,33 @@ function usePostUpload() {
 }
 ```
 
-### 10.7 File Upload Error (400)
+### 10.8 Refresh Token Errors
+
+**Invalid Refresh Token (401):**
+
+```json
+{
+   "success": false,
+   "error": "Invalid or expired refresh token"
+}
+```
+
+**Missing Refresh Token (400):**
+
+```json
+{
+   "success": false,
+   "error": "Validation failed",
+   "details": [
+      {
+         "field": "refreshToken",
+         "message": "refreshToken is required"
+      }
+   ]
+}
+```
+
+### 10.9 File Upload Error (400)
 
 ```json
 {
@@ -2367,9 +2452,95 @@ interface Pagination {
 
 ### Authentication
 
--  All protected endpoints require `Authorization: Bearer <token>` header
--  JWT tokens expire in 7 days by default
--  Use `/auth/verify` to check token validity
+-  All protected endpoints require `Authorization: Bearer <access_token>` header
+-  **Access tokens** expire in 15 minutes by default (short-lived for security)
+-  **Refresh tokens** expire in 7 days and are used to obtain new access tokens
+-  Use `/auth/refresh` to get new tokens when access token expires
+-  Use `/auth/verify` to check access token validity
+-  **Token Rotation Security:** Each refresh generates both new access and refresh tokens
+-  **Logout Security:** Refresh tokens are invalidated on logout to prevent misuse
+
+#### Token Management Flow:
+
+1. **Login/Register:** Receive both `accessToken` and `refreshToken`
+2. **API Calls:** Use `accessToken` in Authorization header
+3. **Token Expiry:** When access token expires (15 min), use `refreshToken`
+4. **Refresh:** Call `/auth/refresh` with `refreshToken` to get new tokens
+5. **Logout:** Call `/auth/logout` to invalidate all tokens
+
+#### Best Practices:
+
+-  Store refresh tokens securely (httpOnly cookies recommended for web apps)
+-  Implement automatic token refresh when API returns 401 errors
+-  Always use the new refresh token returned from `/auth/refresh`
+-  Handle refresh token expiry by redirecting to login
+-  Never expose refresh tokens in client-side code or logs
+
+#### Example: Automatic Token Refresh Implementation
+
+```javascript
+// Token refresh interceptor example
+async function makeAuthenticatedRequest(url, options = {}) {
+   let accessToken = localStorage.getItem('accessToken');
+
+   try {
+      const response = await fetch(url, {
+         ...options,
+         headers: {
+            ...options.headers,
+            Authorization: `Bearer ${accessToken}`,
+         },
+      });
+
+      if (response.status === 401) {
+         // Token expired, try to refresh
+         const newTokens = await refreshTokens();
+         if (newTokens) {
+            // Retry with new token
+            return fetch(url, {
+               ...options,
+               headers: {
+                  ...options.headers,
+                  Authorization: `Bearer ${newTokens.accessToken}`,
+               },
+            });
+         } else {
+            // Refresh failed, redirect to login
+            window.location.href = '/login';
+            return;
+         }
+      }
+
+      return response;
+   } catch (error) {
+      console.error('Request failed:', error);
+      throw error;
+   }
+}
+
+async function refreshTokens() {
+   const refreshToken = localStorage.getItem('refreshToken');
+
+   try {
+      const response = await fetch('/api/auth/refresh', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ refreshToken }),
+      });
+
+      if (response.ok) {
+         const data = await response.json();
+         localStorage.setItem('accessToken', data.data.accessToken);
+         localStorage.setItem('refreshToken', data.data.refreshToken);
+         return data.data;
+      }
+   } catch (error) {
+      console.error('Token refresh failed:', error);
+   }
+
+   return null;
+}
+```
 
 ### Real-time Connection
 

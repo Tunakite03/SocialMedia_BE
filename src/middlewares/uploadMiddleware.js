@@ -54,18 +54,20 @@ const handleUploadError = (error, req, res, next) => {
       }
    }
 
-   if (error.status === 400) {
+   // Only handle file upload specific errors (status 400 with file-related messages)
+   if (
+      error.status === 400 &&
+      error.message &&
+      (error.message.includes('file') || error.message.includes('Invalid file type'))
+   ) {
       return res.status(400).json({
          success: false,
          error: error.message,
       });
    }
 
-   logger.error('Upload error:', error);
-   res.status(500).json({
-      success: false,
-      error: 'File upload failed',
-   });
+   // For all other errors (authentication, validation, etc.), pass to next middleware
+   next(error);
 };
 
 module.exports = {

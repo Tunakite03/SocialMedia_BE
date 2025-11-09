@@ -27,10 +27,6 @@ const allowedOrigins =
       ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
       : ['http://localhost:3000', 'http://localhost:3001', 'https://otakomi.netlify.app'];
 
-logger.info('Environment ALLOWED_ORIGINS:', process.env.ALLOWED_ORIGINS);
-logger.info('NODE_ENV:', process.env.NODE_ENV);
-logger.info('Final Allowed Origins:', allowedOrigins);
-
 // ===== Trust proxy for Render/Netlify =====
 app.set('trust proxy', 1);
 

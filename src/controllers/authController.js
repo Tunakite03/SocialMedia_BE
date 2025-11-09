@@ -1,11 +1,12 @@
 'use strict';
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const prisma = require('../config/database');
 const { successResponse } = require('../utils/responseFormatter');
 const Logger = require('../utils/logger');
 const emailService = require('../services/mailService');
+const authUtils = require('../utils/auth');
+const { getRandomAvatarUrl, getClientIpAddress, parseUserAgent } = require('../utils/auth');
 const {
    ConflictError,
    AuthenticationError,
@@ -15,15 +16,6 @@ const {
    SUCCESS_MESSAGES,
    HTTP_STATUS,
 } = require('../constants/errors');
-
-/**
- * Generate JWT token
- */
-const generateToken = (userId) => {
-   return jwt.sign({ userId }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-   });
-};
 
 /**
  * Register new user
@@ -62,6 +54,7 @@ const register = async (req, res, next) => {
             displayName,
             dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
             bio,
+            avatar: getRandomAvatarUrl(),
          },
          select: {
             id: true,
@@ -88,10 +81,26 @@ const register = async (req, res, next) => {
          });
       });
 
-      // Generate token
-      const token = generateToken(user.id);
+      // Generate tokens
+      const ipAddress = getClientIpAddress(req);
+      const userAgent = parseUserAgent(req.get('User-Agent'));
+      const { accessToken, refreshToken, sessionData } = authUtils.generateTokens(user.id, ipAddress, userAgent);
 
-      return successResponse(res, { user, token }, SUCCESS_MESSAGES.USER_REGISTERED, HTTP_STATUS.CREATED);
+      // Create session record
+      await prisma.session.create({
+         data: sessionData,
+      });
+
+      return successResponse(
+         res,
+         {
+            user,
+            accessToken,
+            refreshToken,
+         },
+         SUCCESS_MESSAGES.USER_REGISTERED,
+         HTTP_STATUS.CREATED
+      );
    } catch (error) {
       Logger.error('Registration error', error);
       next(error);
@@ -131,6 +140,11 @@ const login = async (req, res, next) => {
          throw new AuthenticationError(ERROR_MESSAGES.ACCOUNT_DEACTIVATED);
       }
 
+      // Generate tokens
+      const ipAddress = getClientIpAddress(req);
+      const userAgent = parseUserAgent(req.get('User-Agent'));
+      const { accessToken, refreshToken, sessionData } = authUtils.generateTokens(user.id, ipAddress, userAgent);
+
       // Update last seen and online status
       const updatedUser = await prisma.user.update({
          where: { id: user.id },
@@ -153,15 +167,169 @@ const login = async (req, res, next) => {
          },
       });
 
+      // Create session record
+      await prisma.session.create({
+         data: sessionData,
+      });
+
       Logger.logAuth('login', updatedUser, req.ip);
       Logger.logDatabase('UPDATE', 'user', { userId: user.id, action: 'login_status_update' });
 
-      // Generate token
-      const token = generateToken(user.id);
-
-      return successResponse(res, { user: updatedUser, token }, SUCCESS_MESSAGES.LOGIN_SUCCESSFUL);
+      return successResponse(
+         res,
+         {
+            user: updatedUser,
+            accessToken,
+            refreshToken,
+         },
+         SUCCESS_MESSAGES.LOGIN_SUCCESSFUL
+      );
    } catch (error) {
       Logger.error('Login error', error);
+      next(error);
+   }
+};
+
+/**
+ * Refresh access token using refresh token
+ */
+const refreshToken = async (req, res, next) => {
+   try {
+      const { refreshToken } = req.body;
+
+      Logger.info('Token refresh attempt');
+
+      // Find session by refresh token
+      const session = await prisma.session.findFirst({
+         where: {
+            refreshToken,
+            isActive: true,
+            expiresAt: {
+               gt: new Date(), // Token not expired
+            },
+         },
+         include: {
+            user: {
+               select: {
+                  id: true,
+                  email: true,
+                  username: true,
+                  displayName: true,
+                  avatar: true,
+                  bio: true,
+                  dateOfBirth: true,
+                  role: true,
+                  isOnline: true,
+                  lastSeen: true,
+                  createdAt: true,
+               },
+            },
+         },
+      });
+
+      if (!session || !session.user) {
+         Logger.warn('Invalid or expired refresh token used');
+         throw new AuthenticationError(ERROR_MESSAGES.REFRESH_TOKEN_INVALID);
+      }
+
+      const user = session.user;
+
+      // Generate new tokens
+      const ipAddress = getClientIpAddress(req);
+      const userAgent = parseUserAgent(req.get('User-Agent'));
+      const {
+         accessToken,
+         refreshToken: newRefreshToken,
+         sessionData,
+      } = authUtils.generateTokens(user.id, ipAddress, userAgent);
+
+      // Invalidate old session and create new one
+      await prisma.$transaction([
+         // Deactivate old session
+         prisma.session.update({
+            where: { id: session.id },
+            data: { isActive: false },
+         }),
+         // Create new session
+         prisma.session.create({
+            data: sessionData,
+         }),
+      ]);
+
+      Logger.info('Token refresh successful', { userId: user.id });
+
+      return successResponse(
+         res,
+         {
+            user,
+            accessToken,
+            refreshToken: newRefreshToken,
+         },
+         SUCCESS_MESSAGES.TOKEN_REFRESHED
+      );
+   } catch (error) {
+      Logger.error('Token refresh failed', { error: error.message });
+      next(error);
+   }
+};
+
+/**
+ * Get user sessions
+ */
+const getSessions = async (req, res, next) => {
+   try {
+      const sessions = await prisma.session.findMany({
+         where: {
+            userId: req.user.id,
+            isActive: true,
+         },
+         select: {
+            id: true,
+            ipAddress: true,
+            userAgent: true,
+            createdAt: true,
+            expiresAt: true,
+         },
+         orderBy: {
+            createdAt: 'desc',
+         },
+      });
+
+      return successResponse(res, { sessions }, 'User sessions retrieved successfully');
+   } catch (error) {
+      Logger.error('Get sessions error', error);
+      next(error);
+   }
+};
+
+/**
+ * Revoke specific session
+ */
+const revokeSession = async (req, res, next) => {
+   try {
+      const { sessionId } = req.params;
+
+      // Update session to inactive
+      const result = await prisma.session.updateMany({
+         where: {
+            id: sessionId,
+            userId: req.user.id,
+            isActive: true,
+         },
+         data: {
+            isActive: false,
+         },
+      });
+
+      if (result.count === 0) {
+         throw new NotFoundError('Session not found or already revoked');
+      }
+
+      Logger.info('Session revoked', { userId: req.user.id, sessionId });
+
+      return successResponse(res, null, 'Session revoked successfully');
+   } catch (error) {
+      Logger.error('Revoke session error', error);
       next(error);
    }
 };
@@ -171,14 +339,22 @@ const login = async (req, res, next) => {
  */
 const logout = async (req, res, next) => {
    try {
-      // Update user's online status
-      await prisma.user.update({
-         where: { id: req.user.id },
-         data: {
-            isOnline: false,
-            lastSeen: new Date(),
-         },
-      });
+      // Update user's online status and invalidate all sessions
+      await prisma.$transaction([
+         // Update user online status
+         prisma.user.update({
+            where: { id: req.user.id },
+            data: {
+               isOnline: false,
+               lastSeen: new Date(),
+            },
+         }),
+         // Invalidate all user sessions
+         prisma.session.updateMany({
+            where: { userId: req.user.id, isActive: true },
+            data: { isActive: false },
+         }),
+      ]);
 
       Logger.logAuth('logout', req.user, req.ip);
       Logger.logDatabase('UPDATE', 'user', { userId: req.user.id, action: 'logout_status_update' });
@@ -418,7 +594,10 @@ const resetPassword = async (req, res, next) => {
 module.exports = {
    register,
    login,
+   refreshToken,
    logout,
+   getSessions,
+   revokeSession,
    getProfile,
    updateProfile,
    changePassword,

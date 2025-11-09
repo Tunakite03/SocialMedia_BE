@@ -68,6 +68,11 @@ const schemas = {
       newPassword: Joi.string().min(6).required(),
    }),
 
+   // Refresh token
+   refreshToken: Joi.object({
+      refreshToken: Joi.string().required(),
+   }),
+
    // Create post
    createPost: Joi.object({
       content: Joi.string().max(2000).allow('').optional(),

@@ -37,7 +37,6 @@ const authenticate = async (req, res, next) => {
          if (!user || !user.isActive) {
             throw new AuthenticationError(ERROR_MESSAGES.TOKEN_INVALID);
          }
-
          req.user = user;
          next();
       } catch (jwtError) {

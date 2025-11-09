@@ -25,6 +25,8 @@ const ERROR_MESSAGES = {
    CURRENT_PASSWORD_INCORRECT: 'Current password is incorrect',
    TOKEN_INVALID: 'Invalid or expired token',
    TOKEN_MISSING: 'Access token is required',
+   REFRESH_TOKEN_INVALID: 'Invalid or expired refresh token',
+   REFRESH_TOKEN_MISSING: 'Refresh token is required',
 
    // Generic Errors
    INTERNAL_SERVER_ERROR: 'Internal server error',
@@ -42,6 +44,7 @@ const SUCCESS_MESSAGES = {
    PROFILE_UPDATED: 'Profile updated successfully',
    PASSWORD_CHANGED: 'Password changed successfully',
    TOKEN_VERIFIED: 'Token verified successfully',
+   TOKEN_REFRESHED: 'Token refreshed successfully',
 
    // Generic
    OPERATION_SUCCESSFUL: 'Operation completed successfully',

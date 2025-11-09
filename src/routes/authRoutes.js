@@ -139,6 +139,62 @@ router.post('/login', validate(schemas.login), authController.login);
 
 /**
  * @swagger
+ * /auth/refresh:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: Refresh access token
+ *     description: Get a new access token using a valid refresh token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - refreshToken
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 description: Valid refresh token
+ *     responses:
+ *       200:
+ *         description: Token refreshed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/Success'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         user:
+ *                           $ref: '#/components/schemas/User'
+ *                         accessToken:
+ *                           type: string
+ *                           description: New JWT access token
+ *                         refreshToken:
+ *                           type: string
+ *                           description: New refresh token
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Invalid or expired refresh token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/refresh', validate(schemas.refreshToken), authController.refreshToken);
+
+/**
+ * @swagger
  * /auth/forgot-password:
  *   post:
  *     tags:
@@ -392,6 +448,73 @@ router.put('/profile', authenticate, validate(schemas.updateProfile), authContro
  *               $ref: '#/components/schemas/Error'
  */
 router.put('/password', authenticate, validate(schemas.changePassword), authController.changePassword);
+
+/**
+ * @swagger
+ * /auth/sessions:
+ *   get:
+ *     tags:
+ *       - Authentication
+ *     summary: Get user sessions
+ *     description: Get list of active sessions for the authenticated user
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Sessions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/Success'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         sessions:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: string
+ *                               ipAddress:
+ *                                 type: string
+ *                               userAgent:
+ *                                 type: string
+ *                               createdAt:
+ *                                 type: string
+ *                               expiresAt:
+ *                                 type: string
+ */
+router.get('/sessions', authenticate, authController.getSessions);
+
+/**
+ * @swagger
+ * /auth/sessions/{sessionId}:
+ *   delete:
+ *     tags:
+ *       - Authentication
+ *     summary: Revoke specific session
+ *     description: Revoke a specific session by its ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Session revoked successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ */
+router.delete('/sessions/:sessionId', authenticate, authController.revokeSession);
 
 /**
  * @swagger

@@ -11,10 +11,18 @@ const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/er
 const createPost = async (req, res, next) => {
    try {
       const { content, type = 'TEXT', isPublic = true } = req.body;
+      console.log('Creating post:', { content, type, isPublic });
       const userId = req.user.id;
 
       // Convert string values to proper types for multipart/form-data
-      const isPublicBool = isPublic === 'true' || isPublic === true;
+      let isPublicBool;
+      if (typeof isPublic === 'string') {
+         isPublicBool = isPublic.toLowerCase() === 'true';
+      } else if (typeof isPublic === 'boolean') {
+         isPublicBool = isPublic;
+      } else {
+         isPublicBool = true; // default to true
+      }
 
       // Validate content if no file is uploaded
       if (!content && !req.file) {
@@ -25,7 +33,7 @@ const createPost = async (req, res, next) => {
       let postType = type.toUpperCase();
 
       // Handle image upload if file is present
-      if (req.file) {
+      if (req.file && req.file.path) {
          try {
             // File is already uploaded to Cloudinary via multer-storage-cloudinary
             mediaUrl = req.file.path; // Cloudinary secure_url
@@ -261,7 +269,13 @@ const updatePost = async (req, res, next) => {
 
       // Update visibility if provided (convert string to boolean for multipart/form-data)
       if (isPublic !== undefined) {
-         updateData.isPublic = isPublic === 'true' || isPublic === true;
+         if (typeof isPublic === 'string') {
+            updateData.isPublic = isPublic.toLowerCase() === 'true';
+         } else if (typeof isPublic === 'boolean') {
+            updateData.isPublic = isPublic;
+         } else {
+            updateData.isPublic = true; // default to true
+         }
       }
 
       // Handle new media upload
