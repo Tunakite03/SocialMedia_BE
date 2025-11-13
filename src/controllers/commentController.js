@@ -93,7 +93,7 @@ const createComment = async (req, res, next) => {
          // Emit notification via Socket.IO
          const io = req.app.get('socketio');
          if (io) {
-            io.to(`user:${post.authorId}`).emit('notification:new', {
+            io.to(`user_${post.authorId}`).emit('notification:new', {
                sender: {
                   id: req.user.id,
                   username: req.user.username,
@@ -110,12 +110,6 @@ const createComment = async (req, res, next) => {
                createdAt: noti.createdAt,
             });
          }
-      }
-
-      // Emit comment creation to Socket.IO
-      const io = req.app.get('socketio');
-      if (io) {
-         io.emit('comment:new', { postId, comment });
       }
 
       return successResponse(res, { comment }, 'Comment created successfully', HTTP_STATUS.CREATED);

@@ -87,12 +87,15 @@ const addPostReaction = async (req, res, next) => {
 
          // Emit notification via Socket.IO
          const io = req.app.get('socketio');
+
          if (io) {
-            io.to(`user:${post.authorId}`).emit('notification:new', {
+            const targetRoom = `user_${post.authorId}`;
+
+            io.to(targetRoom).emit('notification:new', {
                id: noti.id,
                type: reaction.type,
                title: 'New Reaction',
-               message: `${req.user.displayName + ' ' + type} to your post`,
+               message: `${req.user.displayName} ${type.toLowerCase()}ed your post`,
                senderId: userId,
                entityId: postId,
                entityType: noti.entityType,
@@ -118,7 +121,6 @@ const addPostReaction = async (req, res, next) => {
       reactionCounts.forEach((count) => {
          counts[count.type] = count._count.type;
       });
-  
 
       return successResponse(
          res,
@@ -220,7 +222,7 @@ const addCommentReaction = async (req, res, next) => {
          // Emit notification via Socket.IO
          const io = req.app.get('socketio');
          if (io) {
-            io.to(`user:${comment.authorId}`).emit('notification:new', {
+            io.to(`user_${comment.authorId}`).emit('notification:new', {
                id: noti.id,
                type: 'REACT',
                title: 'New Reaction',
