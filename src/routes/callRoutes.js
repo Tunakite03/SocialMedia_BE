@@ -2,27 +2,23 @@ const express = require('express');
 const router = express.Router();
 
 const { authenticate } = require('../middlewares/authMiddleware');
+const {
+   initiateCall,
+   answerCall,
+   endCall,
+   rejectCall,
+   getCallHistory,
+   saveTranscript,
+} = require('../controllers/callController');
 
-// Placeholder routes - to be implemented
-router.post('/initiate', authenticate, (req, res) => {
-   res.json({
-      success: true,
-      message: 'Call initiation feature coming soon',
-   });
-});
+// Call management routes
+router.post('/initiate', authenticate, initiateCall);
+router.post('/:callId/answer', authenticate, answerCall);
+router.post('/:callId/reject', authenticate, rejectCall);
+router.post('/:callId/end', authenticate, endCall);
 
-router.post('/:id/answer', authenticate, (req, res) => {
-   res.json({
-      success: true,
-      message: 'Answer call feature coming soon',
-   });
-});
-
-router.post('/:id/end', authenticate, (req, res) => {
-   res.json({
-      success: true,
-      message: 'End call feature coming soon',
-   });
-});
+// Call history and transcripts
+router.get('/history', authenticate, getCallHistory);
+router.post('/:callId/transcript', authenticate, saveTranscript);
 
 module.exports = router;

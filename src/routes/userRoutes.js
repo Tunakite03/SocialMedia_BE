@@ -108,6 +108,116 @@ router.get('/:id', optionalAuth, userController.getUserById);
 
 /**
  * @swagger
+ * /users/{id}/follow-status:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get user follow status by ID
+ *     description: Get detailed information about a specific user's follow status
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: User ID
+ *     responses:
+ *       200:
+ *         description: User found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/Success'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         user:
+ *                           allOf:
+ *                             - $ref: '#/components/schemas/User'
+ *                             - type: object
+ *                               properties:
+ *                                 isFollowing:
+ *                                   type: boolean
+ *                                   description: Whether the authenticated user follows this user
+ *                                 _count:
+ *                                   type: object
+ *                                   properties:
+ *                                     posts:
+ *                                       type: integer
+ *                                     followers:
+ *                                       type: integer
+ *                                     following:
+ *                                       type: integer
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/:id/follow-status', optionalAuth, userController.checkFollowingStatus);
+
+/**
+ * @swagger
+ * /users/{id}:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get user by username
+ *     description: Get detailed information about a specific user
+ *     parameters:
+ *       - in: path
+ *         name: username
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: User username
+ *     responses:
+ *       200:
+ *         description: User found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/Success'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         user:
+ *                           allOf:
+ *                             - $ref: '#/components/schemas/User'
+ *                             - type: object
+ *                               properties:
+ *                                 isFollowing:
+ *                                   type: boolean
+ *                                   description: Whether the authenticated user follows this user
+ *                                 _count:
+ *                                   type: object
+ *                                   properties:
+ *                                     posts:
+ *                                       type: integer
+ *                                     followers:
+ *                                       type: integer
+ *                                     following:
+ *                                       type: integer
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/:username', optionalAuth, userController.getUserByUsername);
+
+/**
+ * @swagger
  * /users/{id}/followers:
  *   get:
  *     tags:

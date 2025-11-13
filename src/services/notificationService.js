@@ -6,7 +6,7 @@ class NotificationService {
    /**
     * Create a notification
     * @param {Object} notificationData
-    * @param {string} notificationData.type - Notification type (LIKE, COMMENT, FOLLOW, etc.)
+    * @param {string} notificationData.type - Notification type (REACT, COMMENT, FOLLOW, etc.)
     * @param {string} notificationData.title - Notification title
     * @param {string} notificationData.message - Notification message
     * @param {string} notificationData.receiverId - ID of the user receiving the notification
@@ -47,14 +47,14 @@ class NotificationService {
    /**
     * Create notification for post like
     */
-   async createLikeNotification(likeData) {
-      const { userId: senderId, postId, postAuthorId: receiverId } = likeData;
+   async createReactNotification(reactData) {
+      const { userId: senderId, postId, postAuthorId: receiverId, senderUsername, type } = reactData;
 
-      const title = 'New Like';
-      const message = 'Someone liked your post';
+      const title = `New ${type} Reaction`;
+      const message = `${senderUsername} ${type.toLowerCase()}d your post`;
 
       return this.createNotification({
-         type: 'LIKE',
+         type: 'REACT',
          title,
          message,
          receiverId,
@@ -68,10 +68,10 @@ class NotificationService {
     * Create notification for comment
     */
    async createCommentNotification(commentData) {
-      const { authorId: senderId, postId, postAuthorId: receiverId, content } = commentData;
+      const { senderId: senderId, postId, postAuthorId: receiverId, content, senderUsername } = commentData;
 
       const title = 'New Comment';
-      const message = `Someone commented on your post: "${content.substring(0, 50)}${
+      const message = `${senderUsername} commented on your post: "${content.substring(0, 50)}${
          content.length > 50 ? '...' : ''
       }"`;
 
@@ -90,10 +90,10 @@ class NotificationService {
     * Create notification for follow
     */
    async createFollowNotification(followData) {
-      const { followerId: senderId, followingId: receiverId } = followData;
+      const { followerId: senderId, followingId: receiverId, followerUsername } = followData;
 
       const title = 'New Follower';
-      const message = 'Someone started following you';
+      const message = `${followerUsername} started following you`;
 
       return this.createNotification({
          type: 'FOLLOW',
@@ -101,7 +101,7 @@ class NotificationService {
          message,
          receiverId,
          senderId,
-         entityId: followingId,
+         entityId: receiverId,
          entityType: 'user',
       });
    }
@@ -110,10 +110,12 @@ class NotificationService {
     * Create notification for message
     */
    async createMessageNotification(messageData) {
-      const { senderId, receiverId, conversationId, content } = messageData;
+      const { senderId, receiverId, conversationId, content, senderUsername } = messageData;
 
       const title = 'New Message';
-      const message = `You have a new message: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`;
+      const message = `You have a new message: "${content.substring(0, 50)}${
+         content.length > 50 ? '...' : ''
+      }" from ${senderUsername}`;
 
       return this.createNotification({
          type: 'MESSAGE',
@@ -130,10 +132,10 @@ class NotificationService {
     * Create notification for call
     */
    async createCallNotification(callData) {
-      const { callerId: senderId, receiverId, type } = callData;
+      const { callerId: senderId, receiverId, type, callerUsername } = callData;
 
       const title = 'Incoming Call';
-      const message = `You have an incoming ${type.toLowerCase()} call`;
+      const message = `You have an incoming ${type.toLowerCase()} call from ${callerUsername}`;
 
       return this.createNotification({
          type: 'CALL',

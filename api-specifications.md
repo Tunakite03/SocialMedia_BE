@@ -1,46 +1,11 @@
 # OnWay Backend API Specifications
 
-**Version:** 1.3.0  
-**Last Updated:** November 10, 2025  
+**Version:** 1.4.0  
+**Last Updated:** November 13, 2025  
 **Base URL:** `http://localhost:8080/api/v1` (Development) | `https://otakomi-backend.onrender.com/api/v1` (Production)  
 **Socket.IO:** `ws://localhost:8080` (Development) | `wss://otakomi-backend.onrender.com` (Production)
 
 ## Changelog
-
-### Version 1.3.0 (November 10, 2025)
-
--  ✅ **Enhanced Authentication with Refresh Tokens**
-   -  POST `/auth/refresh`: Exchange refresh token for new access and refresh tokens
-   -  Updated login and register endpoints to return both access and refresh tokens
-   -  Enhanced logout to invalidate refresh tokens for security
-   -  Token rotation: Each refresh generates new access AND refresh tokens
-   -  Improved security with short-lived access tokens (15 minutes) and long-lived refresh tokens (7 days)
-   -  Backward compatible with existing JWT token authentication
-
-### Version 1.2.0 (November 8, 2025)
-
--  ✅ **Complete Notification API Implementation**
-   -  GET `/notifications`: Retrieve paginated user notifications with cursor-based pagination
-   -  PUT `/notifications/{id}/read`: Mark specific notification as read
-   -  PUT `/notifications/read-all`: Mark all user notifications as read
-   -  Real-time notification delivery via Socket.IO events
-   -  Automatic notification creation for likes, comments, follows, and mentions
-   -  Comprehensive notification types: LIKE, COMMENT, FOLLOW, MESSAGE, CALL, MENTION
-   -  Notification metadata including sender info, entity references, and timestamps
-
-### Version 1.1.0 (November 8, 2025)
-
--  ✅ **Enhanced Post Creation & Updates with Image Upload**
-   -  Support for multipart/form-data uploads in POST `/posts` and PUT `/posts/{id}`
-   -  Auto-detection of post type based on uploaded media
-   -  Flexible validation: content or media required (not both)
-   -  Automatic Cloudinary integration with image optimization
-   -  Media cleanup on post updates and deletions
--  ✅ **Updated API Documentation**
-   -  Comprehensive examples for image upload scenarios
-   -  Frontend integration guidelines and code samples
-   -  Media management best practices
-   -  Error handling for file uploads
 
 ## Table of Contents
 
@@ -50,11 +15,13 @@
 4. [Comments](#4-comments)
 5. [Reactions](#5-reactions)
 6. [Notifications](#6-notifications)
-7. [Upload](#7-upload)
-8. [Real-time Features (Socket.IO)](#8-real-time-features-socketio)
-9. [Sentiment Analysis Service](#9-sentiment-analysis-service)
-10.   [Error Responses](#10-error-responses)
-11.   [Data Models](#11-data-models)
+7. [Messaging](#7-messaging)
+8. [Calls](#8-calls)
+9. [Upload](#9-upload)
+10.   [Real-time Features (Socket.IO)](#10-real-time-features-socketio)
+11.   [Sentiment Analysis Service](#11-sentiment-analysis-service)
+12.   [Error Responses](#12-error-responses)
+13.   [Data Models](#13-data-models)
 
 ---
 
@@ -1181,41 +1148,314 @@ curl -X PUT http://localhost:8080/api/posts/uuid \
 
 ---
 
-## 7. Upload
+## 7. Messaging
 
-### 7.1 Upload Single Image
+### 7.1 Get User Conversations
 
--  **Endpoint:** `POST /upload/image`
--  **Description:** Upload a single image file
+-  **Endpoint:** `GET /conversations`
+-  **Description:** Get paginated list of user's conversations
 -  **Authentication:** Bearer token required
--  **Content-Type:** `multipart/form-data`
 
-**Request:**
+**Query Parameters:**
 
-```
-Content-Type: multipart/form-data
-
-image: [binary file]
-```
+-  `limit` (optional): Number of conversations (default: 10)
+-  `offset` (optional): Offset for pagination (default: 0)
 
 **Response (200):**
 
 ```json
 {
    "success": true,
-   "message": "Image uploaded successfully",
    "data": {
-      "url": "https://cloudinary.com/image.jpg",
-      "publicId": "posts/image123",
-      "size": 1024000
+      "conversations": [
+         {
+            "id": "uuid",
+            "title": null,
+            "type": "DIRECT",
+            "participants": [
+               {
+                  "id": "uuid",
+                  "userId": "uuid",
+                  "user": {
+                     "id": "uuid",
+                     "username": "johndoe",
+                     "displayName": "John Doe",
+                     "avatar": "https://cloudinary.com/avatar.jpg",
+                     "isOnline": true
+                  },
+                  "role": "MEMBER",
+                  "joinedAt": "2023-11-05T10:00:00Z"
+               }
+            ],
+            "_count": {
+               "messages": 15
+            },
+            "lastMessage": {
+               "id": "uuid",
+               "content": "Hello!",
+               "type": "TEXT",
+               "sender": {
+                  "id": "uuid",
+                  "username": "johndoe",
+                  "displayName": "John Doe"
+               },
+               "createdAt": "2023-11-05T10:45:00Z"
+            },
+            "createdAt": "2023-11-05T10:00:00Z"
+         }
+      ],
+      "pagination": {
+         "limit": 10,
+         "offset": 0,
+         "hasMore": false
+      }
    }
 }
 ```
 
-### 7.2 Upload Multiple Images
+### 7.2 Get or Create Direct Conversation
 
--  **Endpoint:** `POST /upload/images`
--  **Description:** Upload multiple image files (max 10)
+-  **Endpoint:** `GET /conversations/direct/{userId}`
+-  **Description:** Get existing direct conversation with user or create new one
+-  **Authentication:** Bearer token required
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "data": {
+      "conversation": {
+         "id": "uuid",
+         "title": null,
+         "type": "DIRECT",
+         "participants": [
+            {
+               "id": "uuid",
+               "userId": "uuid",
+               "user": {
+                  "id": "uuid",
+                  "username": "johndoe",
+                  "displayName": "John Doe",
+                  "avatar": "https://cloudinary.com/avatar.jpg",
+                  "isOnline": true
+               },
+               "role": "MEMBER",
+               "joinedAt": "2023-11-05T10:00:00Z"
+            }
+         ],
+         "_count": {
+            "messages": 0
+         },
+         "createdAt": "2023-11-05T10:00:00Z"
+      }
+   }
+}
+```
+
+### 7.3 Create Group Conversation
+
+-  **Endpoint:** `POST /conversations/group`
+-  **Description:** Create a new group conversation
+-  **Authentication:** Bearer token required
+
+**Request Body:**
+
+```json
+{
+   "title": "Project Team",
+   "participantIds": ["uuid1", "uuid2", "uuid3"]
+}
+```
+
+**Response (201):**
+
+```json
+{
+   "success": true,
+   "message": "Group conversation created successfully",
+   "data": {
+      "conversation": {
+         "id": "uuid",
+         "title": "Project Team",
+         "type": "GROUP",
+         "participants": [
+            {
+               "id": "uuid",
+               "userId": "uuid",
+               "user": {
+                  "id": "uuid",
+                  "username": "johndoe",
+                  "displayName": "John Doe",
+                  "avatar": "https://cloudinary.com/avatar.jpg",
+                  "isOnline": true
+               },
+               "role": "ADMIN",
+               "joinedAt": "2023-11-05T10:00:00Z"
+            }
+         ],
+         "_count": {
+            "messages": 0
+         },
+         "createdAt": "2023-11-05T10:00:00Z"
+      }
+   }
+}
+```
+
+### 7.4 Get Conversation Messages
+
+-  **Endpoint:** `GET /conversations/{conversationId}/messages`
+-  **Description:** Get paginated messages from a conversation
+-  **Authentication:** Bearer token required
+
+**Query Parameters:**
+
+-  `limit` (optional): Number of messages (default: 20)
+-  `offset` (optional): Offset for pagination (default: 0)
+-  `before` (optional): Get messages before this message ID
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "data": {
+      "messages": [
+         {
+            "id": "uuid",
+            "content": "Hello everyone!",
+            "type": "TEXT",
+            "mediaUrl": null,
+            "conversationId": "uuid",
+            "senderId": "uuid",
+            "sender": {
+               "id": "uuid",
+               "username": "johndoe",
+               "displayName": "John Doe",
+               "avatar": "https://cloudinary.com/avatar.jpg"
+            },
+            "parentId": null,
+            "isRead": true,
+            "readAt": "2023-11-05T10:46:00Z",
+            "reactions": [
+               {
+                  "id": "uuid",
+                  "emoji": "👍",
+                  "userId": "uuid",
+                  "user": {
+                     "id": "uuid",
+                     "username": "janedoe",
+                     "displayName": "Jane Doe"
+                  },
+                  "createdAt": "2023-11-05T10:47:00Z"
+               }
+            ],
+            "attachments": [],
+            "createdAt": "2023-11-05T10:45:00Z",
+            "updatedAt": "2023-11-05T10:45:00Z"
+         }
+      ],
+      "pagination": {
+         "limit": 20,
+         "offset": 0,
+         "hasMore": false
+      }
+   }
+}
+```
+
+### 7.5 Send Message
+
+-  **Endpoint:** `POST /conversations/{conversationId}/messages`
+-  **Description:** Send a new message to a conversation
+-  **Authentication:** Bearer token required
+
+**Request Body:**
+
+```json
+{
+   "content": "Hello, how are you?",
+   "type": "TEXT", // Optional: TEXT, IMAGE, FILE, VOICE (default: TEXT)
+   "parentId": "uuid" // Optional: for replying to a message
+}
+```
+
+**Response (201):**
+
+```json
+{
+   "success": true,
+   "message": "Message sent successfully",
+   "data": {
+      "message": {
+         "id": "uuid",
+         "content": "Hello, how are you?",
+         "type": "TEXT",
+         "mediaUrl": null,
+         "conversationId": "uuid",
+         "senderId": "uuid",
+         "sender": {
+            "id": "uuid",
+            "username": "johndoe",
+            "displayName": "John Doe",
+            "avatar": "https://cloudinary.com/avatar.jpg"
+         },
+         "parentId": null,
+         "isRead": false,
+         "readAt": null,
+         "reactions": [],
+         "attachments": [],
+         "createdAt": "2023-11-05T10:45:00Z",
+         "updatedAt": "2023-11-05T10:45:00Z"
+      }
+   }
+}
+```
+
+### 7.6 React to Message
+
+-  **Endpoint:** `POST /messages/{messageId}/react`
+-  **Description:** Add or remove emoji reaction to a message
+-  **Authentication:** Bearer token required
+
+**Request Body:**
+
+```json
+{
+   "emoji": "👍"
+}
+```
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "message": "Reaction updated successfully",
+   "data": {
+      "reaction": {
+         "id": "uuid",
+         "emoji": "👍",
+         "messageId": "uuid",
+         "userId": "uuid",
+         "user": {
+            "id": "uuid",
+            "username": "johndoe",
+            "displayName": "John Doe"
+         },
+         "createdAt": "2023-11-05T10:47:00Z"
+      }
+   }
+}
+```
+
+**Note:** Sending the same emoji again will remove the reaction (toggle behavior).
+
+### 7.7 Upload Message Attachment
+
+-  **Endpoint:** `POST /messages/{messageId}/attachments`
+-  **Description:** Upload a file attachment to an existing message
 -  **Authentication:** Bearer token required
 -  **Content-Type:** `multipart/form-data`
 
@@ -1224,9 +1464,7 @@ image: [binary file]
 ```
 Content-Type: multipart/form-data
 
-images: [binary file 1]
-images: [binary file 2]
-...
+file: [binary file]
 ```
 
 **Response (200):**
@@ -1234,27 +1472,212 @@ images: [binary file 2]
 ```json
 {
    "success": true,
-   "message": "Images uploaded successfully",
+   "message": "Attachment uploaded successfully",
    "data": {
-      "images": [
-         {
-            "url": "https://cloudinary.com/image1.jpg",
-            "publicId": "posts/image123",
-            "size": 1024000
-         },
-         {
-            "url": "https://cloudinary.com/image2.jpg",
-            "publicId": "posts/image124",
-            "size": 856000
-         }
-      ]
+      "attachment": {
+         "id": "uuid",
+         "messageId": "uuid",
+         "fileName": "document.pdf",
+         "fileUrl": "https://cloudinary.com/attachment.pdf",
+         "fileType": "application/pdf",
+         "fileSize": 2048000,
+         "createdAt": "2023-11-05T10:48:00Z"
+      }
    }
 }
 ```
 
 ---
 
-## 8. Real-time Features (Socket.IO)
+## 8. Calls
+
+### 8.1 Initiate Call
+
+-  **Endpoint:** `POST /calls/initiate`
+-  **Description:** Initiate a voice or video call to another user
+-  **Authentication:** Bearer token required
+
+**Request Body:**
+
+```json
+{
+   "receiverId": "uuid",
+   "type": "VOICE" // VOICE or VIDEO
+}
+```
+
+**Response (201):**
+
+```json
+{
+   "success": true,
+   "message": "Call initiated successfully",
+   "data": {
+      "call": {
+         "id": "uuid",
+         "conversationId": "uuid",
+         "type": "VOICE",
+         "status": "PENDING",
+         "duration": null,
+         "callerId": "uuid",
+         "caller": {
+            "id": "uuid",
+            "username": "johndoe",
+            "displayName": "John Doe",
+            "avatar": "https://cloudinary.com/avatar.jpg"
+         },
+         "receiverId": "uuid",
+         "receiver": {
+            "id": "uuid",
+            "username": "janedoe",
+            "displayName": "Jane Doe",
+            "avatar": "https://cloudinary.com/avatar.jpg"
+         },
+         "startedAt": null,
+         "endedAt": null,
+         "createdAt": "2023-11-05T11:00:00Z"
+      }
+   }
+}
+```
+
+### 8.2 Answer Call
+
+-  **Endpoint:** `POST /calls/{callId}/answer`
+-  **Description:** Answer an incoming call
+-  **Authentication:** Bearer token required
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "message": "Call answered successfully"
+}
+```
+
+### 8.3 Reject Call
+
+-  **Endpoint:** `POST /calls/{callId}/reject`
+-  **Description:** Reject an incoming call
+-  **Authentication:** Bearer token required
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "message": "Call rejected"
+}
+```
+
+### 8.4 End Call
+
+-  **Endpoint:** `POST /calls/{callId}/end`
+-  **Description:** End an ongoing call
+-  **Authentication:** Bearer token required
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "message": "Call ended successfully"
+}
+```
+
+### 8.5 Get Call History
+
+-  **Endpoint:** `GET /calls/history`
+-  **Description:** Get paginated call history for the authenticated user
+-  **Authentication:** Bearer token required
+
+**Query Parameters:**
+
+-  `limit` (optional): Number of calls (default: 10)
+-  `offset` (optional): Offset for pagination (default: 0)
+
+**Response (200):**
+
+```json
+{
+   "success": true,
+   "data": {
+      "calls": [
+         {
+            "id": "uuid",
+            "conversationId": "uuid",
+            "type": "VOICE",
+            "status": "ENDED",
+            "duration": 300, // in seconds
+            "callerId": "uuid",
+            "caller": {
+               "id": "uuid",
+               "username": "johndoe",
+               "displayName": "John Doe",
+               "avatar": "https://cloudinary.com/avatar.jpg"
+            },
+            "receiverId": "uuid",
+            "receiver": {
+               "id": "uuid",
+               "username": "janedoe",
+               "displayName": "Jane Doe",
+               "avatar": "https://cloudinary.com/avatar.jpg"
+            },
+            "startedAt": "2023-11-05T11:00:00Z",
+            "endedAt": "2023-11-05T11:05:00Z",
+            "createdAt": "2023-11-05T11:00:00Z"
+         }
+      ],
+      "pagination": {
+         "limit": 10,
+         "offset": 0,
+         "hasMore": false
+      }
+   }
+}
+```
+
+### 8.6 Save Call Transcript
+
+-  **Endpoint:** `POST /calls/{callId}/transcript`
+-  **Description:** Save transcript for a completed call
+-  **Authentication:** Bearer token required
+
+**Request Body:**
+
+```json
+{
+   "language": "en",
+   "provider": "openai-whisper",
+   "text": "Hello, how are you today?",
+   "confidence": 0.95
+}
+```
+
+**Response (201):**
+
+```json
+{
+   "success": true,
+   "message": "Transcript saved successfully",
+   "data": {
+      "transcript": {
+         "id": "uuid",
+         "callId": "uuid",
+         "language": "en",
+         "provider": "openai-whisper",
+         "text": "Hello, how are you today?",
+         "confidence": 0.95,
+         "createdAt": "2023-11-05T11:06:00Z"
+      }
+   }
+}
+```
+
+---
+
+## 9. Upload
 
 ### 8.1 Connection Setup
 
@@ -1486,6 +1909,7 @@ socket.emit('message:send', {
    content: 'Hello!',
    type: 'TEXT', // TEXT, IMAGE, FILE, VOICE
    receiverId: 'uuid', // Optional for direct messages
+   parentId: 'uuid', // Optional: for replying to a message
 });
 ```
 
@@ -1514,7 +1938,62 @@ socket.on('message:new', (message) => {
       "username": "janedoe",
       "displayName": "Jane Doe"
     },
+    "parentId": null,
+    "reactions": [],
+    "attachments": [],
     "createdAt": "2023-11-05T10:45:00Z"
+  }
+  */
+});
+```
+
+**Event: `message:reaction`**
+
+-  **Direction:** Server → Client
+-  **Description:** Notify when a message reaction is added, updated, or removed
+
+```javascript
+socket.on('message:reaction', (data) => {
+   console.log(data);
+   /*
+  {
+    "messageId": "uuid",
+    "reaction": {
+      "id": "uuid",
+      "emoji": "👍",
+      "userId": "uuid",
+      "user": {
+        "id": "uuid",
+        "username": "johndoe",
+        "displayName": "John Doe"
+      },
+      "createdAt": "2023-11-05T10:47:00Z"
+    },
+    "action": "added" // "added", "updated", or "removed"
+  }
+  */
+});
+```
+
+**Event: `message:attachment`**
+
+-  **Direction:** Server → Client
+-  **Description:** Notify when an attachment is added to a message
+
+```javascript
+socket.on('message:attachment', (data) => {
+   console.log(data);
+   /*
+  {
+    "messageId": "uuid",
+    "attachment": {
+      "id": "uuid",
+      "fileName": "document.pdf",
+      "fileUrl": "https://cloudinary.com/attachment.pdf",
+      "fileType": "application/pdf",
+      "fileSize": 2048000,
+      "createdAt": "2023-11-05T10:48:00Z"
+    }
   }
   */
 });
@@ -1634,7 +2113,7 @@ socket.on('typing:stop', (data) => {
 ```javascript
 socket.emit('notification:send', {
    receiverId: 'uuid',
-   type: 'LIKE', // LIKE, COMMENT, FOLLOW, MESSAGE, CALL, MENTION
+   type: 'REACT', // REACT, COMMENT, FOLLOW, MESSAGE, CALL, MENTION
    title: 'New Follower',
    message: 'John Doe started following you',
    entityId: 'uuid', // Optional: ID of related entity
@@ -2133,6 +2612,245 @@ function usePostUpload() {
 }
 ```
 
+### 9.6 Messaging Integration Examples
+
+#### JavaScript - Send Message with Attachment
+
+```javascript
+async function sendMessageWithAttachment(conversationId, content, file) {
+   const formData = new FormData();
+   formData.append('content', content || '');
+   formData.append('type', 'TEXT');
+   if (file) {
+      formData.append('attachment', file);
+   }
+
+   const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      headers: {
+         Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+   });
+
+   return response.json();
+}
+```
+
+#### JavaScript - React to Message
+
+```javascript
+async function reactToMessage(messageId, emoji) {
+   const response = await fetch(`/api/messages/${messageId}/react`, {
+      method: 'POST',
+      headers: {
+         'Content-Type': 'application/json',
+         Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ emoji }),
+   });
+
+   return response.json();
+}
+```
+
+#### JavaScript - Create Group Conversation
+
+```javascript
+async function createGroupConversation(title, participantIds) {
+   const response = await fetch('/api/conversations/group', {
+      method: 'POST',
+      headers: {
+         'Content-Type': 'application/json',
+         Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+         title,
+         participantIds,
+      }),
+   });
+
+   return response.json();
+}
+```
+
+#### React Hook - Messaging
+
+```javascript
+function useMessaging() {
+   const [conversations, setConversations] = useState([]);
+   const [messages, setMessages] = useState([]);
+   const [socket, setSocket] = useState(null);
+
+   useEffect(() => {
+      // Initialize Socket.IO connection
+      const newSocket = io('ws://localhost:8080', {
+         auth: { token: localStorage.getItem('accessToken') },
+      });
+
+      // Listen for new messages
+      newSocket.on('message:new', (message) => {
+         setMessages((prev) => [...prev, message]);
+      });
+
+      // Listen for message reactions
+      newSocket.on('message:reaction', (data) => {
+         setMessages((prev) =>
+            prev.map((msg) =>
+               msg.id === data.messageId ? { ...msg, reactions: updateReactions(msg.reactions, data) } : msg
+            )
+         );
+      });
+
+      setSocket(newSocket);
+
+      return () => newSocket.close();
+   }, []);
+
+   const sendMessage = async (conversationId, content, attachment = null) => {
+      if (attachment) {
+         const formData = new FormData();
+         formData.append('content', content);
+         formData.append('attachment', attachment);
+
+         const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+         });
+         return response.json();
+      } else {
+         socket.emit('message:send', {
+            conversationId,
+            content,
+            type: 'TEXT',
+         });
+      }
+   };
+
+   const reactToMessage = (messageId, emoji) => {
+      socket.emit('message:react', { messageId, emoji });
+   };
+
+   return {
+      conversations,
+      messages,
+      sendMessage,
+      reactToMessage,
+   };
+}
+```
+
+### 9.7 Call Integration Examples
+
+#### JavaScript - Initiate Call
+
+```javascript
+async function initiateCall(receiverId, type = 'VOICE') {
+   const response = await fetch('/api/calls/initiate', {
+      method: 'POST',
+      headers: {
+         'Content-Type': 'application/json',
+         Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ receiverId, type }),
+   });
+
+   return response.json();
+}
+```
+
+#### JavaScript - WebRTC Call Setup
+
+```javascript
+class CallManager {
+   constructor(socket) {
+      this.socket = socket;
+      this.peerConnection = null;
+      this.localStream = null;
+   }
+
+   async initiateCall(receiverId, callType) {
+      try {
+         // Get user media
+         this.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: callType === 'VIDEO',
+         });
+
+         // Create peer connection
+         this.peerConnection = new RTCPeerConnection();
+
+         // Add local stream
+         this.localStream.getTracks().forEach((track) => {
+            this.peerConnection.addTrack(track, this.localStream);
+         });
+
+         // Set up event handlers
+         this.setupPeerConnectionHandlers();
+
+         // Create offer
+         const offer = await this.peerConnection.createOffer();
+         await this.peerConnection.setLocalDescription(offer);
+
+         // Send offer via Socket.IO
+         this.socket.emit('webrtc:offer', {
+            receiverId,
+            offer: this.peerConnection.localDescription,
+            callId: 'call-uuid', // From API response
+         });
+      } catch (error) {
+         console.error('Failed to initiate call:', error);
+      }
+   }
+
+   setupPeerConnectionHandlers() {
+      this.peerConnection.onicecandidate = (event) => {
+         if (event.candidate) {
+            this.socket.emit('webrtc:ice-candidate', {
+               targetId: 'receiver-uuid',
+               candidate: event.candidate,
+               callId: 'call-uuid',
+            });
+         }
+      };
+
+      this.peerConnection.ontrack = (event) => {
+         // Handle remote stream
+         const remoteVideo = document.getElementById('remote-video');
+         if (remoteVideo) {
+            remoteVideo.srcObject = event.streams[0];
+         }
+      };
+   }
+
+   async handleIncomingCall(callData) {
+      // Similar setup for receiving calls
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+         audio: true,
+         video: callData.call.type === 'VIDEO',
+      });
+
+      this.peerConnection = new RTCPeerConnection();
+      // ... setup handlers
+
+      // Set remote description from offer
+      await this.peerConnection.setRemoteDescription(callData.offer);
+
+      // Create answer
+      const answer = await this.peerConnection.createAnswer();
+      await this.peerConnection.setLocalDescription(answer);
+
+      // Send answer
+      this.socket.emit('webrtc:answer', {
+         senderId: callData.callerId,
+         answer: this.peerConnection.localDescription,
+         callId: callData.call.id,
+      });
+   }
+}
+```
+
 ---
 
 ## 10. Error Responses
@@ -2331,19 +3049,49 @@ interface Message {
    sender: User;
    receiverId: string | null;
    receiver: User | null;
+   parentId: string | null; // For message replies
    isRead: boolean;
    readAt: string | null; // ISO datetime
+   reactions: MessageReaction[];
+   attachments: MessageAttachment[];
    createdAt: string; // ISO datetime
    updatedAt: string; // ISO datetime
 }
 ```
 
-### 11.6 Conversation Model
+### 11.6 MessageReaction Model
+
+```typescript
+interface MessageReaction {
+   id: string;
+   messageId: string;
+   userId: string;
+   emoji: string; // Unicode emoji character
+   user: User;
+   createdAt: string; // ISO datetime
+}
+```
+
+### 11.7 MessageAttachment Model
+
+```typescript
+interface MessageAttachment {
+   id: string;
+   messageId: string;
+   fileName: string;
+   fileUrl: string; // Cloudinary URL
+   fileType: string; // MIME type
+   fileSize: number; // File size in bytes
+   createdAt: string; // ISO datetime
+}
+```
+
+### 11.8 Conversation Model
 
 ```typescript
 interface Conversation {
    id: string;
-   name: string | null;
+   title: string | null;
    type: 'DIRECT' | 'GROUP';
    participants: ConversationParticipant[];
    messages: Message[];
@@ -2355,16 +3103,17 @@ interface ConversationParticipant {
    id: string;
    conversationId: string;
    userId: string;
+   role: 'ADMIN' | 'MEMBER';
    user: User;
    joinedAt: string; // ISO datetime
    leftAt: string | null; // ISO datetime
 }
 ```
 
-### 11.7 Notification Model
+### 11.9 Notification Model
 
 ```typescript
-type NotificationType = 'LIKE' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'CALL' | 'MENTION';
+type NotificationType = 'REACT' | 'COMMENT' | 'FOLLOW' | 'MESSAGE' | 'CALL' | 'MENTION';
 
 interface Notification {
    id: string;
@@ -2382,11 +3131,12 @@ interface Notification {
 }
 ```
 
-### 11.8 Call Model
+### 11.10 Call Model
 
 ```typescript
 interface Call {
    id: string;
+   conversationId: string;
    type: 'VOICE' | 'VIDEO';
    status: 'PENDING' | 'ONGOING' | 'ENDED' | 'MISSED';
    duration: number | null; // in seconds
@@ -2394,13 +3144,34 @@ interface Call {
    caller: User;
    receiverId: string;
    receiver: User;
+   participants: CallParticipant[];
+   transcripts: CallTranscript[];
    startedAt: string | null; // ISO datetime
    endedAt: string | null; // ISO datetime
    createdAt: string; // ISO datetime
 }
+
+interface CallParticipant {
+   id: string;
+   callId: string;
+   userId: string;
+   user: User;
+   joinedAt: string; // ISO datetime
+   leftAt: string | null; // ISO datetime
+}
+
+interface CallTranscript {
+   id: string;
+   callId: string;
+   language: string;
+   provider: string; // e.g., "openai-whisper", "google-speech"
+   text: string;
+   confidence: number | null; // 0.0 to 1.0
+   createdAt: string; // ISO datetime
+}
 ```
 
-### 11.9 Follow Model
+### 11.11 Follow Model
 
 ```typescript
 interface Follow {
@@ -2413,7 +3184,7 @@ interface Follow {
 }
 ```
 
-### 11.10 Sentiment Analysis Model
+### 11.12 Sentiment Analysis Model
 
 ```typescript
 type SentimentType = 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE';
@@ -2431,7 +3202,7 @@ interface SentimentAnalysis {
 }
 ```
 
-### 11.11 Pagination Model
+### 11.13 Pagination Model
 
 ```typescript
 interface Pagination {

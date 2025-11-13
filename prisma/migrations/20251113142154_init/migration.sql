@@ -11,7 +11,10 @@ CREATE TYPE "MessageType" AS ENUM ('TEXT', 'IMAGE', 'FILE', 'VOICE');
 CREATE TYPE "ConversationType" AS ENUM ('DIRECT', 'GROUP');
 
 -- CreateEnum
-CREATE TYPE "NotificationType" AS ENUM ('LIKE', 'COMMENT', 'FOLLOW', 'MESSAGE', 'CALL', 'MENTION');
+CREATE TYPE "ConversationMemberRole" AS ENUM ('ADMIN', 'MEMBER');
+
+-- CreateEnum
+CREATE TYPE "NotificationType" AS ENUM ('REACT', 'COMMENT', 'FOLLOW', 'MESSAGE', 'CALL', 'MENTION');
 
 -- CreateEnum
 CREATE TYPE "CallType" AS ENUM ('VOICE', 'VIDEO');
@@ -31,8 +34,7 @@ CREATE TABLE "users" (
     "email" TEXT NOT NULL,
     "username" TEXT NOT NULL,
     "password" TEXT NOT NULL,
-    "firstName" TEXT NOT NULL,
-    "lastName" TEXT NOT NULL,
+    "displayName" TEXT NOT NULL,
     "avatar" TEXT,
     "bio" TEXT,
     "dateOfBirth" TIMESTAMP(3),
@@ -41,10 +43,27 @@ CREATE TABLE "users" (
     "isOnline" BOOLEAN NOT NULL DEFAULT false,
     "lastSeen" TIMESTAMP(3),
     "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+    "resetToken" TEXT,
+    "resetTokenExpiry" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "users_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "sessions" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "refreshToken" TEXT NOT NULL,
+    "ipAddress" TEXT,
+    "userAgent" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "sessions_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -99,7 +118,7 @@ CREATE TABLE "reactions" (
 -- CreateTable
 CREATE TABLE "conversations" (
     "id" TEXT NOT NULL,
-    "name" TEXT,
+    "title" TEXT,
     "type" "ConversationType" NOT NULL DEFAULT 'DIRECT',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -112,6 +131,7 @@ CREATE TABLE "conversation_participants" (
     "id" TEXT NOT NULL,
     "conversationId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
+    "role" "ConversationMemberRole" NOT NULL DEFAULT 'MEMBER',
     "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "leftAt" TIMESTAMP(3),
 
@@ -126,13 +146,36 @@ CREATE TABLE "messages" (
     "mediaUrl" TEXT,
     "conversationId" TEXT NOT NULL,
     "senderId" TEXT NOT NULL,
-    "receiverId" TEXT,
+    "parentId" TEXT,
     "isRead" BOOLEAN NOT NULL DEFAULT false,
     "readAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "messages_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "message_attachments" (
+    "id" TEXT NOT NULL,
+    "messageId" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "type" "MessageType" NOT NULL,
+    "size" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "message_attachments_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "message_reactions" (
+    "id" TEXT NOT NULL,
+    "messageId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "type" "ReactionType" NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "message_reactions_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -154,6 +197,7 @@ CREATE TABLE "notifications" (
 -- CreateTable
 CREATE TABLE "calls" (
     "id" TEXT NOT NULL,
+    "conversationId" TEXT NOT NULL,
     "type" "CallType" NOT NULL,
     "status" "CallStatus" NOT NULL DEFAULT 'PENDING',
     "duration" INTEGER,
@@ -164,6 +208,30 @@ CREATE TABLE "calls" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "calls_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "call_participants" (
+    "id" TEXT NOT NULL,
+    "callId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "leftAt" TIMESTAMP(3),
+
+    CONSTRAINT "call_participants_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "call_transcripts" (
+    "id" TEXT NOT NULL,
+    "callId" TEXT NOT NULL,
+    "language" TEXT NOT NULL,
+    "provider" TEXT NOT NULL,
+    "text" TEXT NOT NULL,
+    "confidence" DOUBLE PRECISION,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "call_transcripts_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -187,7 +255,31 @@ CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 CREATE UNIQUE INDEX "users_username_key" ON "users"("username");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "users_resetToken_key" ON "users"("resetToken");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "sessions_refreshToken_key" ON "sessions"("refreshToken");
+
+-- CreateIndex
+CREATE INDEX "sessions_userId_isActive_idx" ON "sessions"("userId", "isActive");
+
+-- CreateIndex
+CREATE INDEX "sessions_refreshToken_idx" ON "sessions"("refreshToken");
+
+-- CreateIndex
+CREATE INDEX "sessions_expiresAt_idx" ON "sessions"("expiresAt");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "follows_followerId_followingId_key" ON "follows"("followerId", "followingId");
+
+-- CreateIndex
+CREATE INDEX "posts_isPublic_createdAt_idx" ON "posts"("isPublic", "createdAt" DESC);
+
+-- CreateIndex
+CREATE INDEX "posts_type_isPublic_createdAt_idx" ON "posts"("type", "isPublic", "createdAt" DESC);
+
+-- CreateIndex
+CREATE INDEX "posts_authorId_createdAt_idx" ON "posts"("authorId", "createdAt" DESC);
 
 -- CreateIndex
 CREATE UNIQUE INDEX "reactions_userId_postId_key" ON "reactions"("userId", "postId");
@@ -196,7 +288,40 @@ CREATE UNIQUE INDEX "reactions_userId_postId_key" ON "reactions"("userId", "post
 CREATE UNIQUE INDEX "reactions_userId_commentId_key" ON "reactions"("userId", "commentId");
 
 -- CreateIndex
+CREATE INDEX "conversation_participants_userId_idx" ON "conversation_participants"("userId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "conversation_participants_conversationId_userId_key" ON "conversation_participants"("conversationId", "userId");
+
+-- CreateIndex
+CREATE INDEX "messages_conversationId_createdAt_idx" ON "messages"("conversationId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "messages_senderId_idx" ON "messages"("senderId");
+
+-- CreateIndex
+CREATE INDEX "message_attachments_messageId_idx" ON "message_attachments"("messageId");
+
+-- CreateIndex
+CREATE INDEX "message_reactions_userId_idx" ON "message_reactions"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "message_reactions_messageId_userId_type_key" ON "message_reactions"("messageId", "userId", "type");
+
+-- CreateIndex
+CREATE INDEX "calls_conversationId_startedAt_idx" ON "calls"("conversationId", "startedAt");
+
+-- CreateIndex
+CREATE INDEX "call_participants_userId_idx" ON "call_participants"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "call_participants_callId_userId_key" ON "call_participants"("callId", "userId");
+
+-- CreateIndex
+CREATE INDEX "call_transcripts_callId_createdAt_idx" ON "call_transcripts"("callId", "createdAt");
+
+-- AddForeignKey
+ALTER TABLE "sessions" ADD CONSTRAINT "sessions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "follows" ADD CONSTRAINT "follows_followerId_fkey" FOREIGN KEY ("followerId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -238,7 +363,16 @@ ALTER TABLE "messages" ADD CONSTRAINT "messages_conversationId_fkey" FOREIGN KEY
 ALTER TABLE "messages" ADD CONSTRAINT "messages_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "messages" ADD CONSTRAINT "messages_receiverId_fkey" FOREIGN KEY ("receiverId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "messages" ADD CONSTRAINT "messages_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "messages"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "message_attachments" ADD CONSTRAINT "message_attachments_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "messages"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "messages"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "message_reactions" ADD CONSTRAINT "message_reactions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "notifications" ADD CONSTRAINT "notifications_receiverId_fkey" FOREIGN KEY ("receiverId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -247,10 +381,22 @@ ALTER TABLE "notifications" ADD CONSTRAINT "notifications_receiverId_fkey" FOREI
 ALTER TABLE "notifications" ADD CONSTRAINT "notifications_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "calls" ADD CONSTRAINT "calls_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "conversations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "calls" ADD CONSTRAINT "calls_callerId_fkey" FOREIGN KEY ("callerId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "calls" ADD CONSTRAINT "calls_receiverId_fkey" FOREIGN KEY ("receiverId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "call_participants" ADD CONSTRAINT "call_participants_callId_fkey" FOREIGN KEY ("callId") REFERENCES "calls"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "call_participants" ADD CONSTRAINT "call_participants_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "call_transcripts" ADD CONSTRAINT "call_transcripts_callId_fkey" FOREIGN KEY ("callId") REFERENCES "calls"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "sentiment_analyses" ADD CONSTRAINT "sentiment_analyses_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;

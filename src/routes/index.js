@@ -4,7 +4,7 @@ router.use('/auth', require('./authRoutes'));
 router.use('/users', require('./userRoutes'));
 router.use('/posts', require('./postRoutes'));
 router.use('/comments', require('./commentRoutes'));
-router.use('/messages', require('./messageRoutes'));
+router.use('/conversations', require('./messageRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
 router.use('/calls', require('./callRoutes'));
 router.use('/upload', require('./uploadRoutes'));

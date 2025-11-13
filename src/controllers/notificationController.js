@@ -72,7 +72,7 @@ const getNotifications = async (req, res, next) => {
 
       return paginatedResponse(
          res,
-         { notifications: result.items },
+         { notifications: result.items, unreadCount: result.items.filter((n) => !n.isRead).length },
          result.pagination,
          SUCCESS_MESSAGES.DATA_RETRIEVED
       );

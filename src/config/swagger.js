@@ -167,7 +167,7 @@ const options = {
                   },
                   type: {
                      type: 'string',
-                     enum: ['LIKE', 'COMMENT', 'FOLLOW', 'MESSAGE', 'CALL', 'MENTION'],
+                     enum: ['REACT', 'COMMENT', 'FOLLOW', 'MESSAGE', 'CALL', 'MENTION'],
                   },
                   title: {
                      type: 'string',

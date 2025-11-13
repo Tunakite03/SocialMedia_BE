@@ -191,7 +191,9 @@ async function main() {
 
       await prisma.comment.create({
          data: {
-            content: `Reply from ${authorB.displayName}: ${SAMPLE_COMMENT_LINES[(i + 2) % SAMPLE_COMMENT_LINES.length]}`,
+            content: `Reply from ${authorB.displayName}: ${
+               SAMPLE_COMMENT_LINES[(i + 2) % SAMPLE_COMMENT_LINES.length]
+            }`,
             postId: post.id,
             authorId: authorB.id,
             parentId: parentComment.id,
@@ -248,13 +250,11 @@ async function main() {
             content: 'Hey there! How are you doing?',
             conversationId: conversation.id,
             senderId: createdUsers[0].id,
-            receiverId: createdUsers[1].id,
          },
          {
             content: "Hi! I'm doing great, thanks for asking! How about you?",
             conversationId: conversation.id,
             senderId: createdUsers[1].id,
-            receiverId: createdUsers[0].id,
          },
       ],
    });

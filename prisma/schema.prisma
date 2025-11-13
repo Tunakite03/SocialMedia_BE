@@ -34,8 +34,13 @@ enum ConversationType {
   GROUP
 }
 
+enum ConversationMemberRole {
+  ADMIN
+  MEMBER
+}
+
 enum NotificationType {
-  LIKE
+  REACT
   COMMENT
   FOLLOW
   MESSAGE
@@ -94,7 +99,6 @@ model User {
   comments          Comment[]
   reactions         Reaction[]
   sentMessages      Message[]                 @relation("SentMessages")
-  receivedMessages  Message[]                 @relation("ReceivedMessages")
   conversations     ConversationParticipant[]
   notifications     Notification[]            @relation("NotificationReceiver")
   sentNotifications Notification[]            @relation("NotificationSender")
@@ -104,6 +108,8 @@ model User {
   following         Follow[]                  @relation("UserFollowing")
   sentimentAnalyses SentimentAnalysis[]
   sessions          Session[]
+  messageReactions  MessageReaction[]
+  callParticipants  CallParticipant[]
 
   @@map("users")
 }
@@ -202,7 +208,7 @@ model Reaction {
 
 model Conversation {
   id        String           @id @default(uuid())
-  name      String?
+  title     String?
   type      ConversationType @default(DIRECT)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
@@ -210,15 +216,17 @@ model Conversation {
   // Relations
   participants ConversationParticipant[]
   messages     Message[]
+  calls        Call[]
 
   @@map("conversations")
 }
 
 model ConversationParticipant {
-  id             String    @id @default(uuid())
+  id             String                 @id @default(uuid())
   conversationId String
   userId         String
-  joinedAt       DateTime  @default(now())
+  role           ConversationMemberRole @default(MEMBER)
+  joinedAt       DateTime               @default(now())
   leftAt         DateTime?
 
   // Relations
@@ -226,6 +234,7 @@ model ConversationParticipant {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([conversationId, userId])
+  @@index([userId])
   @@map("conversation_participants")
 }
 
@@ -236,18 +245,54 @@ model Message {
   mediaUrl       String?
   conversationId String
   senderId       String
-  receiverId     String?
+  parentId       String? // For reply feature
   isRead         Boolean     @default(false)
   readAt         DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
   // Relations
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  receiver     User?        @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User                @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  parent       Message?            @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies      Message[]           @relation("MessageReplies")
+  attachments  MessageAttachment[]
+  reactions    MessageReaction[]
 
+  @@index([conversationId, createdAt])
+  @@index([senderId])
   @@map("messages")
+}
+
+model MessageAttachment {
+  id        String      @id @default(uuid())
+  messageId String
+  url       String
+  type      MessageType
+  size      Int? // File size in bytes
+  createdAt DateTime    @default(now())
+
+  // Relations
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+model MessageReaction {
+  id        String       @id @default(uuid())
+  messageId String
+  userId    String
+  type      ReactionType
+  createdAt DateTime     @default(now())
+
+  // Relations
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, type])
+  @@index([userId])
+  @@map("message_reactions")
 }
 
 model Notification {
@@ -270,21 +315,58 @@ model Notification {
 }
 
 model Call {
-  id         String     @id @default(uuid())
-  type       CallType
-  status     CallStatus @default(PENDING)
-  duration   Int? // in seconds
-  callerId   String
-  receiverId String
-  startedAt  DateTime?
-  endedAt    DateTime?
-  createdAt  DateTime   @default(now())
+  id             String     @id @default(uuid())
+  conversationId String
+  type           CallType
+  status         CallStatus @default(PENDING)
+  duration       Int? // in seconds
+  callerId       String
+  receiverId     String
+  startedAt      DateTime?
+  endedAt        DateTime?
+  createdAt      DateTime   @default(now())
 
   // Relations
-  caller   User @relation("CallInitiator", fields: [callerId], references: [id], onDelete: Cascade)
-  receiver User @relation("CallReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  caller       User              @relation("CallInitiator", fields: [callerId], references: [id], onDelete: Cascade)
+  receiver     User              @relation("CallReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  participants CallParticipant[]
+  transcripts  CallTranscript[]
 
+  @@index([conversationId, startedAt])
   @@map("calls")
+}
+
+model CallParticipant {
+  id       String    @id @default(uuid())
+  callId   String
+  userId   String
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  // Relations
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@index([userId])
+  @@map("call_participants")
+}
+
+model CallTranscript {
+  id         String   @id @default(uuid())
+  callId     String
+  language   String
+  provider   String
+  text       String
+  confidence Float?
+  createdAt  DateTime @default(now())
+
+  // Relations
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([callId, createdAt])
+  @@map("call_transcripts")
 }
 
 model SentimentAnalysis {

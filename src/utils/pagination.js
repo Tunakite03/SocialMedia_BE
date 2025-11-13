@@ -13,7 +13,7 @@
  * @param {string} params.orderDirection - Order direction (asc/desc)
  * @returns {Object} Optimized pagination config
  */
-export const createPaginationConfig = ({
+const createPaginationConfig = ({
    limit = 10,
    offset = 0,
    cursor = null,
@@ -67,7 +67,7 @@ export const createPaginationConfig = ({
  * @param {string} cursorField - Field to use as cursor (default: 'createdAt')
  * @returns {Object} Processed pagination result
  */
-export const processPaginatedResults = (results, config, cursorField = 'createdAt') => {
+const processPaginatedResults = (results, config, cursorField = 'createdAt') => {
    const { originalLimit, originalOffset, useCursor, performanceWarning, recommendCursor } = config.meta;
 
    const hasMore = results.length > originalLimit;
@@ -100,7 +100,7 @@ export const processPaginatedResults = (results, config, cursorField = 'createdA
  * @param {Object} whereClause - Where conditions
  * @returns {Promise<number|null>} Estimated count or null if too expensive
  */
-export const getEstimatedTotal = async (prisma, model, whereClause = {}) => {
+const getEstimatedTotal = async (prisma, model, whereClause = {}) => {
    try {
       // Only calculate count for simple queries to avoid performance issues
       const isSimpleQuery = Object.keys(whereClause).length <= 2;
@@ -125,7 +125,7 @@ export const getEstimatedTotal = async (prisma, model, whereClause = {}) => {
 /**
  * Default pagination limits
  */
-export const PAGINATION_LIMITS = {
+const PAGINATION_LIMITS = {
    MIN_LIMIT: 1,
    MAX_LIMIT: 100,
    DEFAULT_LIMIT: 10,
@@ -136,7 +136,7 @@ export const PAGINATION_LIMITS = {
 /**
  * Validates and sanitizes pagination parameters
  */
-export const validatePaginationParams = (params) => {
+const validatePaginationParams = (params) => {
    const { limit, offset, cursor } = params;
 
    const validatedLimit = Math.min(
@@ -152,4 +152,12 @@ export const validatePaginationParams = (params) => {
       cursor: cursor || null,
       useCursor: validatedOffset > PAGINATION_LIMITS.CURSOR_THRESHOLD || !!cursor,
    };
+};
+
+module.exports = {
+   createPaginationConfig,
+   processPaginatedResults,
+   getEstimatedTotal,
+   PAGINATION_LIMITS,
+   validatePaginationParams,
 };

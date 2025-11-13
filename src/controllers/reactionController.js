@@ -40,6 +40,7 @@ const addPostReaction = async (req, res, next) => {
                postId,
             },
          },
+         select: { id: true, type: true },
       });
 
       let reaction;
@@ -50,6 +51,7 @@ const addPostReaction = async (req, res, next) => {
             // Same reaction - remove it
             await prisma.reaction.delete({
                where: { id: existingReaction.id },
+               select: { id: true },
             });
             action = 'removed';
             reaction = null;
@@ -75,22 +77,32 @@ const addPostReaction = async (req, res, next) => {
 
       // Create notification for post author (if not reacting to own post and reaction was added)
       if (action === 'added' && post.authorId !== userId) {
-         await notificationService.createLikeNotification({
+         const noti = await notificationService.createReactNotification({
+            senderUsername: req.user.displayName,
             userId,
             postId,
             postAuthorId: post.authorId,
+            type,
          });
 
          // Emit notification via Socket.IO
          const io = req.app.get('socketio');
          if (io) {
             io.to(`user:${post.authorId}`).emit('notification:new', {
-               type: 'LIKE',
+               id: noti.id,
+               type: reaction.type,
                title: 'New Reaction',
-               message: `${req.user.displayName} reacted to your post`,
+               message: `${req.user.displayName + ' ' + type} to your post`,
                senderId: userId,
                entityId: postId,
-               entityType: 'post',
+               entityType: noti.entityType,
+               sender: {
+                  id: req.user.id,
+                  username: req.user.username,
+                  displayName: req.user.displayName,
+                  avatar: req.user.avatar,
+               },
+               createdAt: noti.createdAt,
             });
          }
       }
@@ -106,18 +118,7 @@ const addPostReaction = async (req, res, next) => {
       reactionCounts.forEach((count) => {
          counts[count.type] = count._count.type;
       });
-
-      // Emit to Socket.IO
-      const io = req.app.get('socketio');
-      if (io) {
-         io.emit('post:reaction', {
-            postId,
-            userId,
-            reaction: reaction ? { type: reaction.type } : null,
-            action,
-            counts,
-         });
-      }
+  
 
       return successResponse(
          res,
@@ -206,8 +207,8 @@ const addCommentReaction = async (req, res, next) => {
 
       // Create notification for comment author (if not reacting to own comment and reaction was added)
       if (action === 'added' && comment.authorId !== userId) {
-         await notificationService.createNotification({
-            type: 'LIKE',
+         const noti = await notificationService.createNotification({
+            type: 'REACT',
             title: 'New Reaction',
             message: `${req.user.displayName} reacted to your comment`,
             receiverId: comment.authorId,
@@ -220,12 +221,20 @@ const addCommentReaction = async (req, res, next) => {
          const io = req.app.get('socketio');
          if (io) {
             io.to(`user:${comment.authorId}`).emit('notification:new', {
-               type: 'LIKE',
+               id: noti.id,
+               type: 'REACT',
                title: 'New Reaction',
                message: `${req.user.displayName} reacted to your comment`,
                senderId: userId,
                entityId: commentId,
                entityType: 'comment',
+               sender: {
+                  id: req.user.id,
+                  username: req.user.username,
+                  displayName: req.user.displayName,
+                  avatar: req.user.avatar,
+               },
+               createdAt: noti.createdAt,
             });
          }
       }

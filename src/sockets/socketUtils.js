@@ -67,10 +67,29 @@ const handleConnection = async (socket) => {
       },
    });
 
-   console.log(`User ${user.username} connected (${socket.id})`);
-
    // Join user to their personal room
-   socket.join(`user:${userId}`);
+   socket.join(`user_${userId}`);
+
+   // Auto-join user to their conversations
+   try {
+      const conversations = await prisma.conversationParticipant.findMany({
+         where: {
+            userId: userId,
+            leftAt: null,
+         },
+         select: {
+            conversationId: true,
+         },
+      });
+
+      conversations.forEach(({ conversationId }) => {
+         socket.join(`conversation_${conversationId}`);
+      });
+
+      console.log(`User ${user.username} auto-joined ${conversations.length} conversations`);
+   } catch (error) {
+      console.error('Error auto-joining conversations:', error);
+   }
 
    // Notify friends about online status
    socket.broadcast.emit('user:online', {
@@ -110,13 +129,18 @@ const handleDisconnection = async (socket) => {
       userSockets.delete(userId);
 
       // Update user offline status in database
-      await prisma.user.update({
-         where: { id: userId },
-         data: {
-            isOnline: false,
-            lastSeen: new Date(),
-         },
-      });
+      try {
+         await prisma.user.update({
+            where: { id: userId },
+            data: {
+               isOnline: false,
+               lastSeen: new Date(),
+            },
+         });
+      } catch (error) {
+         // User might have been deleted, log and continue
+         console.warn(`Failed to update offline status for user ${userId}:`, error.message);
+      }
 
       console.log(`User ${user?.username} disconnected (${socket.id})`);
 
@@ -129,25 +153,11 @@ const handleDisconnection = async (socket) => {
 };
 
 /**
- * Handle typing indicators
+ * Handle typing indicators (moved to handleMessaging)
  */
 const handleTyping = (socket) => {
-   socket.on('typing:start', (data) => {
-      const { conversationId } = data;
-      socket.to(`conversation:${conversationId}`).emit('typing:start', {
-         userId: socket.userId,
-         user: socket.user,
-         conversationId,
-      });
-   });
-
-   socket.on('typing:stop', (data) => {
-      const { conversationId } = data;
-      socket.to(`conversation:${conversationId}`).emit('typing:stop', {
-         userId: socket.userId,
-         conversationId,
-      });
-   });
+   // This function is now empty as typing is handled in handleMessaging
+   // Keeping it for backward compatibility
 };
 
 /**
@@ -169,8 +179,15 @@ const handleConversations = (socket) => {
          });
 
          if (participant) {
-            socket.join(`conversation:${conversationId}`);
+            socket.join(`conversation_${conversationId}`);
             console.log(`User ${socket.user.username} joined conversation ${conversationId}`);
+
+            // Notify others in conversation
+            socket.to(`conversation_${conversationId}`).emit('user:joined_conversation', {
+               userId: socket.userId,
+               user: socket.user,
+               conversationId,
+            });
          }
       } catch (error) {
          console.error('Error joining conversation:', error);
@@ -180,8 +197,37 @@ const handleConversations = (socket) => {
    // Leave conversation room
    socket.on('conversation:leave', (data) => {
       const { conversationId } = data;
-      socket.leave(`conversation:${conversationId}`);
+      socket.leave(`conversation_${conversationId}`);
       console.log(`User ${socket.user.username} left conversation ${conversationId}`);
+
+      // Notify others in conversation
+      socket.to(`conversation_${conversationId}`).emit('user:left_conversation', {
+         userId: socket.userId,
+         conversationId,
+      });
+   });
+
+   // Auto-join user to their conversations when they connect
+   socket.on('conversations:join_all', async () => {
+      try {
+         const conversations = await prisma.conversationParticipant.findMany({
+            where: {
+               userId: socket.userId,
+               leftAt: null,
+            },
+            select: {
+               conversationId: true,
+            },
+         });
+
+         conversations.forEach(({ conversationId }) => {
+            socket.join(`conversation_${conversationId}`);
+         });
+
+         console.log(`User ${socket.user.username} joined ${conversations.length} conversations`);
+      } catch (error) {
+         console.error('Error joining all conversations:', error);
+      }
    });
 };
 
@@ -189,18 +235,32 @@ const handleConversations = (socket) => {
  * Handle real-time messaging
  */
 const handleMessaging = (socket, io) => {
+   // Send message to conversation
    socket.on('message:send', async (data) => {
       try {
-         const { conversationId, content, type = 'TEXT', receiverId } = data;
+         const { conversationId, content, replyToId } = data;
+
+         // Verify user is participant in this conversation
+         const participant = await prisma.conversationParticipant.findFirst({
+            where: {
+               conversationId,
+               userId: socket.userId,
+               leftAt: null,
+            },
+         });
+
+         if (!participant) {
+            socket.emit('message:error', { error: 'Access denied to this conversation' });
+            return;
+         }
 
          // Create message in database
          const message = await prisma.message.create({
             data: {
-               content,
-               type,
+               content: content.trim(),
                conversationId,
                senderId: socket.userId,
-               receiverId,
+               parentId: replyToId || null,
             },
             include: {
                sender: {
@@ -211,53 +271,192 @@ const handleMessaging = (socket, io) => {
                      avatar: true,
                   },
                },
-               receiver: {
-                  select: {
-                     id: true,
-                     username: true,
-                     displayName: true,
-                     avatar: true,
+               parent: replyToId
+                  ? {
+                       include: {
+                          sender: {
+                             select: {
+                                id: true,
+                                username: true,
+                                displayName: true,
+                             },
+                          },
+                       },
+                    }
+                  : false,
+               attachments: true,
+               reactions: {
+                  include: {
+                     user: {
+                        select: {
+                           id: true,
+                           username: true,
+                           displayName: true,
+                        },
+                     },
                   },
                },
             },
          });
 
+         // Update conversation's updatedAt
+         await prisma.conversation.update({
+            where: { id: conversationId },
+            data: { updatedAt: new Date() },
+         });
+
          // Emit to conversation room
-         io.to(`conversation:${conversationId}`).emit('message:new', message);
+         io.to(`conversation_${conversationId}`).emit('message:new', message);
 
-         // If direct message, also emit to receiver's personal room
-         if (receiverId) {
-            io.to(`user:${receiverId}`).emit('message:received', message);
-         }
-
-         console.log(`Message sent in conversation ${conversationId}`);
+         console.log(`Message sent in conversation ${conversationId} by ${socket.user.username}`);
       } catch (error) {
          console.error('Error sending message:', error);
          socket.emit('message:error', { error: 'Failed to send message' });
       }
    });
 
-   // Mark message as read
+   // React to message
+   socket.on('message:react', async (data) => {
+      try {
+         const { messageId, emoji } = data;
+
+         // Verify message exists and user has access
+         const message = await prisma.message.findFirst({
+            where: {
+               id: messageId,
+               conversation: {
+                  participants: {
+                     some: {
+                        userId: socket.userId,
+                        leftAt: null,
+                     },
+                  },
+               },
+            },
+            include: {
+               conversation: {
+                  select: { id: true },
+               },
+            },
+         });
+
+         if (!message) {
+            socket.emit('message:error', { error: 'Message not found or access denied' });
+            return;
+         }
+
+         // Check if user already reacted
+         const existingReaction = await prisma.messageReaction.findFirst({
+            where: {
+               messageId,
+               userId: socket.userId,
+            },
+         });
+
+         let reaction;
+         let action;
+
+         if (existingReaction) {
+            if (existingReaction.emoji === emoji) {
+               // Remove reaction if same emoji
+               await prisma.messageReaction.delete({
+                  where: { id: existingReaction.id },
+               });
+               reaction = null;
+               action = 'removed';
+            } else {
+               // Update reaction with new emoji
+               reaction = await prisma.messageReaction.update({
+                  where: { id: existingReaction.id },
+                  data: { emoji },
+                  include: {
+                     user: {
+                        select: {
+                           id: true,
+                           username: true,
+                           displayName: true,
+                        },
+                     },
+                  },
+               });
+               action = 'updated';
+            }
+         } else {
+            // Create new reaction
+            reaction = await prisma.messageReaction.create({
+               data: {
+                  messageId,
+                  userId: socket.userId,
+                  emoji,
+               },
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                     },
+                  },
+               },
+            });
+            action = 'added';
+         }
+
+         // Emit to conversation room
+         io.to(`conversation_${message.conversation.id}`).emit('message:reaction', {
+            messageId,
+            reaction,
+            action,
+         });
+
+         console.log(`Message reaction ${action} by ${socket.user.username}`);
+      } catch (error) {
+         console.error('Error reacting to message:', error);
+         socket.emit('message:error', { error: 'Failed to react to message' });
+      }
+   });
+
+   // Typing indicators
+   socket.on('typing:start', (data) => {
+      const { conversationId } = data;
+      socket.to(`conversation_${conversationId}`).emit('typing:start', {
+         userId: socket.userId,
+         user: {
+            id: socket.user.id,
+            username: socket.user.username,
+            displayName: socket.user.displayName,
+            avatar: socket.user.avatar,
+         },
+         conversationId,
+      });
+   });
+
+   socket.on('typing:stop', (data) => {
+      const { conversationId } = data;
+      socket.to(`conversation_${conversationId}`).emit('typing:stop', {
+         userId: socket.userId,
+         conversationId,
+      });
+   });
+
+   // Mark message as read (optional feature for later)
    socket.on('message:read', async (data) => {
       try {
          const { messageId } = data;
 
-         await prisma.message.update({
+         // For now, we can just emit the read event
+         // Later we can implement read receipts with a separate table
+         const message = await prisma.message.findUnique({
             where: { id: messageId },
-            data: {
-               isRead: true,
-               readAt: new Date(),
+            include: {
+               conversation: { select: { id: true } },
+               sender: { select: { id: true } },
             },
          });
 
-         // Notify sender about read receipt
-         const message = await prisma.message.findUnique({
-            where: { id: messageId },
-            select: { senderId: true, conversationId: true },
-         });
-
          if (message) {
-            io.to(`user:${message.senderId}`).emit('message:read', {
+            // Notify sender about read receipt
+            io.to(`user_${message.sender.id}`).emit('message:read', {
                messageId,
                readBy: socket.userId,
                readAt: new Date(),
@@ -314,81 +513,13 @@ const handleNotifications = (socket, io) => {
  * Handle WebRTC signaling for calls
  */
 const handleWebRTC = (socket, io) => {
-   // Call initiation
-   socket.on('call:initiate', async (data) => {
-      try {
-         const { receiverId, type = 'VOICE' } = data;
-
-         // Create call record
-         const call = await prisma.call.create({
-            data: {
-               type,
-               callerId: socket.userId,
-               receiverId,
-               status: 'PENDING',
-            },
-            include: {
-               caller: {
-                  select: {
-                     id: true,
-                     username: true,
-                     displayName: true,
-                     avatar: true,
-                  },
-               },
-            },
-         });
-
-         // Send call invitation to receiver
-         io.to(`user:${receiverId}`).emit('call:incoming', {
-            call,
-            caller: call.caller,
-         });
-
-         // Confirm call initiation to caller
-         socket.emit('call:initiated', { callId: call.id });
-
-         console.log(`Call initiated by ${socket.user.username} to user ${receiverId}`);
-      } catch (error) {
-         console.error('Error initiating call:', error);
-         socket.emit('call:error', { error: 'Failed to initiate call' });
-      }
-   });
-
-   // Call response (accept/decline)
-   socket.on('call:response', async (data) => {
-      try {
-         const { callId, accepted } = data;
-
-         const call = await prisma.call.update({
-            where: { id: callId },
-            data: {
-               status: accepted ? 'ONGOING' : 'MISSED',
-               startedAt: accepted ? new Date() : null,
-            },
-         });
-
-         // Notify caller about response
-         io.to(`user:${call.callerId}`).emit('call:response', {
-            callId,
-            accepted,
-            status: call.status,
-         });
-
-         if (accepted) {
-            console.log(`Call ${callId} accepted`);
-         } else {
-            console.log(`Call ${callId} declined`);
-         }
-      } catch (error) {
-         console.error('Error responding to call:', error);
-      }
-   });
+   // Call events are now handled through conversation-based calls
 
    // WebRTC signaling events
    socket.on('webrtc:offer', (data) => {
-      const { receiverId, offer, callId } = data;
-      io.to(`user:${receiverId}`).emit('webrtc:offer', {
+      const { callId, offer } = data;
+      // Broadcast to conversation participants
+      socket.to(`call_${callId}`).emit('webrtc:offer', {
          senderId: socket.userId,
          offer,
          callId,
@@ -396,45 +527,35 @@ const handleWebRTC = (socket, io) => {
    });
 
    socket.on('webrtc:answer', (data) => {
-      const { senderId, answer, callId } = data;
-      io.to(`user:${senderId}`).emit('webrtc:answer', {
-         receiverId: socket.userId,
+      const { callId, answer } = data;
+      socket.to(`call_${callId}`).emit('webrtc:answer', {
+         senderId: socket.userId,
          answer,
          callId,
       });
    });
 
    socket.on('webrtc:ice-candidate', (data) => {
-      const { targetId, candidate, callId } = data;
-      io.to(`user:${targetId}`).emit('webrtc:ice-candidate', {
+      const { callId, candidate } = data;
+      socket.to(`call_${callId}`).emit('webrtc:ice-candidate', {
          senderId: socket.userId,
          candidate,
          callId,
       });
    });
 
-   // Call end
-   socket.on('call:end', async (data) => {
-      try {
-         const { callId } = data;
+   // Join call room for WebRTC signaling
+   socket.on('call:join_room', (data) => {
+      const { callId } = data;
+      socket.join(`call_${callId}`);
+      console.log(`User ${socket.user.username} joined call room ${callId}`);
+   });
 
-         const call = await prisma.call.update({
-            where: { id: callId },
-            data: {
-               status: 'ENDED',
-               endedAt: new Date(),
-               duration: call.startedAt ? Math.floor((Date.now() - call.startedAt.getTime()) / 1000) : null,
-            },
-         });
-
-         // Notify other participant
-         const otherUserId = call.callerId === socket.userId ? call.receiverId : call.callerId;
-         io.to(`user:${otherUserId}`).emit('call:ended', { callId });
-
-         console.log(`Call ${callId} ended`);
-      } catch (error) {
-         console.error('Error ending call:', error);
-      }
+   // Leave call room
+   socket.on('call:leave_room', (data) => {
+      const { callId } = data;
+      socket.leave(`call_${callId}`);
+      console.log(`User ${socket.user.username} left call room ${callId}`);
    });
 };
 

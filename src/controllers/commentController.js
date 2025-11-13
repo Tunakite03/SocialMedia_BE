@@ -9,6 +9,7 @@ const {
    SUCCESS_MESSAGES,
    HTTP_STATUS,
 } = require('../constants/errors');
+const { not } = require('joi');
 
 /**
  * Create a new comment
@@ -81,8 +82,9 @@ const createComment = async (req, res, next) => {
 
       // Create notification for post author (if not commenting on own post)
       if (post.authorId !== userId) {
-         await notificationService.createCommentNotification({
-            authorId: userId,
+         const noti = await notificationService.createCommentNotification({
+            senderUsername: req.user.username,
+            senderId: userId,
             postId,
             postAuthorId: post.authorId,
             content,
@@ -92,12 +94,20 @@ const createComment = async (req, res, next) => {
          const io = req.app.get('socketio');
          if (io) {
             io.to(`user:${post.authorId}`).emit('notification:new', {
+               sender: {
+                  id: req.user.id,
+                  username: req.user.username,
+                  displayName: req.user.displayName,
+                  avatar: req.user.avatar,
+               },
+               id: noti.id,
                type: 'COMMENT',
                title: 'New Comment',
                message: `${req.user.displayName} commented on your post`,
                senderId: userId,
                entityId: comment.id,
-               entityType: 'comment',
+               entityType: noti.entityType,
+               createdAt: noti.createdAt,
             });
          }
       }

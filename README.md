@@ -125,6 +125,12 @@ The Swagger UI provides:
 npm run docs
 ```
 
+### Chat API Integration Guide
+
+For detailed frontend integration examples and best practices for the chat/messaging system, see:
+
+-  **[Chat API Specifications](chat-api-specifications.md)** - Complete guide for integrating chat functionality
+
 ### Authentication
 
 All protected endpoints require JWT authentication. Include the token in the `Authorization` header:
