@@ -34,6 +34,7 @@ const getNotifications = async (req, res, next) => {
       const whereClause = {
          receiverId: userId,
          ...paginationConfig.where,
+         isRead: false, // Only fetch unread notifications
       };
 
       // Fetch notifications with pagination

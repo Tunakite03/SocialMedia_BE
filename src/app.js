@@ -22,7 +22,7 @@ const server = createServer(app);
 // ===== CORS allowed origins =====
 const allowedOrigins =
    process.env.NODE_ENV === 'production'
-      ? ['https://otakomi.netlify.app', 'http://localhost:3000'] // Hardcoded for production
+      ? ['https://otakomi.netlify.app'] // Hardcoded for production
       : process.env.ALLOWED_ORIGINS
       ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
       : ['http://localhost:3000', 'http://localhost:3001', 'https://otakomi.netlify.app'];

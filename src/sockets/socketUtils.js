@@ -86,7 +86,6 @@ const handleConnection = async (socket) => {
          socket.join(`conversation_${conversationId}`);
       });
 
-      console.log(`User ${user.username} auto-joined ${conversations.length} conversations`);
    } catch (error) {
       console.error('Error auto-joining conversations:', error);
    }
@@ -142,7 +141,6 @@ const handleDisconnection = async (socket) => {
          console.warn(`Failed to update offline status for user ${userId}:`, error.message);
       }
 
-      console.log(`User ${user?.username} disconnected (${socket.id})`);
 
       // Notify friends about offline status
       socket.broadcast.emit('user:offline', {
@@ -180,7 +178,6 @@ const handleConversations = (socket) => {
 
          if (participant) {
             socket.join(`conversation_${conversationId}`);
-            console.log(`User ${socket.user.username} joined conversation ${conversationId}`);
 
             // Notify others in conversation
             socket.to(`conversation_${conversationId}`).emit('user:joined_conversation', {
@@ -198,7 +195,6 @@ const handleConversations = (socket) => {
    socket.on('conversation:leave', (data) => {
       const { conversationId } = data;
       socket.leave(`conversation_${conversationId}`);
-      console.log(`User ${socket.user.username} left conversation ${conversationId}`);
 
       // Notify others in conversation
       socket.to(`conversation_${conversationId}`).emit('user:left_conversation', {
@@ -224,7 +220,6 @@ const handleConversations = (socket) => {
             socket.join(`conversation_${conversationId}`);
          });
 
-         console.log(`User ${socket.user.username} joined ${conversations.length} conversations`);
       } catch (error) {
          console.error('Error joining all conversations:', error);
       }
@@ -308,7 +303,6 @@ const handleMessaging = (socket, io) => {
          // Emit to conversation room
          io.to(`conversation_${conversationId}`).emit('message:new', message);
 
-         console.log(`Message sent in conversation ${conversationId} by ${socket.user.username}`);
       } catch (error) {
          console.error('Error sending message:', error);
          socket.emit('message:error', { error: 'Failed to send message' });
@@ -409,7 +403,6 @@ const handleMessaging = (socket, io) => {
             action,
          });
 
-         console.log(`Message reaction ${action} by ${socket.user.username}`);
       } catch (error) {
          console.error('Error reacting to message:', error);
          socket.emit('message:error', { error: 'Failed to react to message' });
@@ -502,7 +495,6 @@ const handleNotifications = (socket, io) => {
          // Send notification to receiver
          io.to(`user:${receiverId}`).emit('notification:new', notification);
 
-         console.log(`Notification sent to user ${receiverId}`);
       } catch (error) {
          console.error('Error sending notification:', error);
       }

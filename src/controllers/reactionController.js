@@ -1,6 +1,6 @@
 const prisma = require('../config/database');
 const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
-const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
+const { NotFoundError, ValidationError } = require('../constants/errors');
 const notificationService = require('../services/notificationService');
 
 /**
