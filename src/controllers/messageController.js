@@ -335,8 +335,12 @@ const getConversations = async (req, res, next) => {
          skip: paginationConfig.skip,
          cursor: paginationConfig.cursor,
       });
+      const transformedConversations = conversations.map((conversation) => {
+         const { messages, ...conversationData } = conversation;
+         return { ...conversationData, lastMessage: messages.length > 0 ? messages[0] : null };
+      });
 
-      const { items, pagination } = processPaginatedResults(conversations, paginationConfig);
+      const { items, pagination } = processPaginatedResults(transformedConversations, paginationConfig);
 
       return paginatedResponse(res, { conversations: items }, pagination);
    } catch (error) {
