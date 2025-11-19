@@ -95,22 +95,22 @@ model User {
   updatedAt        DateTime  @updatedAt
 
   // Relations
-  posts             Post[]
-  comments          Comment[]
-  reactions         Reaction[]
-  sentMessages      Message[]                 @relation("SentMessages")
-  conversations     ConversationParticipant[]
-  notifications     Notification[]            @relation("NotificationReceiver")
-  sentNotifications Notification[]            @relation("NotificationSender")
-  initiatedCalls    Call[]                    @relation("CallInitiator")
-  receivedCalls     Call[]                    @relation("CallReceiver")
-  followers         Follow[]                  @relation("UserFollowers")
-  following         Follow[]                  @relation("UserFollowing")
-  sentimentAnalyses SentimentAnalysis[]
-  sessions          Session[]
-  messageReactions  MessageReaction[]
+  posts               Post[]
+  comments            Comment[]
+  reactions           Reaction[]
+  sentMessages        Message[]                 @relation("SentMessages")
+  conversations       ConversationParticipant[]
+  notifications       Notification[]            @relation("NotificationReceiver")
+  sentNotifications   Notification[]            @relation("NotificationSender")
+  initiatedCalls      Call[]                    @relation("CallInitiator")
+  receivedCalls       Call[]                    @relation("CallReceiver")
+  followers           Follow[]                  @relation("UserFollowers")
+  following           Follow[]                  @relation("UserFollowing")
+  sentimentAnalyses   SentimentAnalysis[]
+  sessions            Session[]
+  messageReactions    MessageReaction[]
   messageReadReceipts MessageReadReceipt[]
-  callParticipants  CallParticipant[]
+  callParticipants    CallParticipant[]
 
   @@map("users")
 }
@@ -229,8 +229,8 @@ model ConversationParticipant {
   role              ConversationMemberRole @default(MEMBER)
   joinedAt          DateTime               @default(now())
   leftAt            DateTime?
-  lastReadMessageId String?                // Last message read by this user
-  lastReadAt        DateTime?              // When the last message was read
+  lastReadMessageId String? // Last message read by this user
+  lastReadAt        DateTime? // When the last message was read
 
   // Relations
   conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -257,14 +257,14 @@ model Message {
   updatedAt      DateTime    @updatedAt
 
   // Relations
-  conversation        Conversation               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender              User                       @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  parent              Message?                   @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies             Message[]                  @relation("MessageReplies")
-  attachments         MessageAttachment[]
-  reactions           MessageReaction[]
-  readReceipts        MessageReadReceipt[]
-  lastReadByUsers     ConversationParticipant[]  @relation("UserLastReadMessage")
+  conversation    Conversation              @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          User                      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  parent          Message?                  @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies         Message[]                 @relation("MessageReplies")
+  attachments     MessageAttachment[]
+  reactions       MessageReaction[]
+  readReceipts    MessageReadReceipt[]
+  lastReadByUsers ConversationParticipant[] @relation("UserLastReadMessage")
 
   @@index([conversationId, createdAt])
   @@index([senderId])

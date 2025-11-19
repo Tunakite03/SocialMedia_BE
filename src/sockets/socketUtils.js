@@ -85,7 +85,6 @@ const handleConnection = async (socket) => {
       conversations.forEach(({ conversationId }) => {
          socket.join(`conversation_${conversationId}`);
       });
-
    } catch (error) {
       console.error('Error auto-joining conversations:', error);
    }
@@ -140,7 +139,6 @@ const handleDisconnection = async (socket) => {
          // User might have been deleted, log and continue
          console.warn(`Failed to update offline status for user ${userId}:`, error.message);
       }
-
 
       // Notify friends about offline status
       socket.broadcast.emit('user:offline', {
@@ -219,7 +217,6 @@ const handleConversations = (socket) => {
          conversations.forEach(({ conversationId }) => {
             socket.join(`conversation_${conversationId}`);
          });
-
       } catch (error) {
          console.error('Error joining all conversations:', error);
       }
@@ -302,7 +299,6 @@ const handleMessaging = (socket, io) => {
 
          // Emit to conversation room
          io.to(`conversation_${conversationId}`).emit('message:new', message);
-
       } catch (error) {
          console.error('Error sending message:', error);
          socket.emit('message:error', { error: 'Failed to send message' });
@@ -402,7 +398,6 @@ const handleMessaging = (socket, io) => {
             reaction,
             action,
          });
-
       } catch (error) {
          console.error('Error reacting to message:', error);
          socket.emit('message:error', { error: 'Failed to react to message' });
@@ -478,10 +473,12 @@ const handleMessaging = (socket, io) => {
             where: {
                conversationId,
                createdAt: {
-                  lte: (await prisma.message.findUnique({
-                     where: { id: messageToMarkRead },
-                     select: { createdAt: true },
-                  }))?.createdAt,
+                  lte: (
+                     await prisma.message.findUnique({
+                        where: { id: messageToMarkRead },
+                        select: { createdAt: true },
+                     })
+                  )?.createdAt,
                },
                senderId: { not: userId },
             },
@@ -489,14 +486,14 @@ const handleMessaging = (socket, io) => {
          });
 
          // Bulk create read receipts
-         const readReceiptData = messagesToMarkRead.map(msg => ({
+         const readReceiptData = messagesToMarkRead.map((msg) => ({
             messageId: msg.id,
             userId,
          }));
 
          if (readReceiptData.length > 0) {
             await Promise.all(
-               readReceiptData.map(data =>
+               readReceiptData.map((data) =>
                   prisma.messageReadReceipt.upsert({
                      where: {
                         messageId_userId: {
@@ -517,7 +514,6 @@ const handleMessaging = (socket, io) => {
             lastReadMessageId: messageToMarkRead,
             readAt: new Date(),
          });
-
       } catch (error) {
          console.error('Error marking conversation as read:', error);
          socket.emit('error', { message: 'Failed to mark as read' });
@@ -600,7 +596,6 @@ const handleNotifications = (socket, io) => {
 
          // Send notification to receiver
          io.to(`user:${receiverId}`).emit('notification:new', notification);
-
       } catch (error) {
          console.error('Error sending notification:', error);
       }

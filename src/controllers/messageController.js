@@ -347,19 +347,22 @@ const getConversations = async (req, res, next) => {
       const transformedConversations = await Promise.all(
          conversations.map(async (conversation) => {
             const { messages, ...conversationData } = conversation;
-            
+
             // Get unread count for this conversation
             const unreadCount = await getUnreadCount(conversation.id, userId);
-            
+
             // Get current user's participant info
-            const currentParticipant = conversation.participants.find(p => p.userId === userId);
-            
+            const currentParticipant = conversation.participants.find((p) => p.userId === userId);
+
             // Process last message
-            const lastMessage = messages.length > 0 ? {
-               ...messages[0],
-               isReadByCurrentUser: messages[0].readReceipts.some(receipt => receipt.userId === userId),
-               readCount: messages[0].readReceipts.length,
-            } : null;
+            const lastMessage =
+               messages.length > 0
+                  ? {
+                       ...messages[0],
+                       isReadByCurrentUser: messages[0].readReceipts.some((receipt) => receipt.userId === userId),
+                       readCount: messages[0].readReceipts.length,
+                    }
+                  : null;
 
             return {
                ...conversationData,
@@ -368,9 +371,10 @@ const getConversations = async (req, res, next) => {
                lastReadMessageId: currentParticipant?.lastReadMessageId,
                lastReadAt: currentParticipant?.lastReadAt,
                // For direct conversations, get the other participant info
-               otherParticipant: conversation.type === 'DIRECT' 
-                  ? conversation.participants.find(p => p.userId !== userId)?.user 
-                  : null,
+               otherParticipant:
+                  conversation.type === 'DIRECT'
+                     ? conversation.participants.find((p) => p.userId !== userId)?.user
+                     : null,
             };
          })
       );
@@ -587,15 +591,15 @@ const getMessages = async (req, res, next) => {
       });
 
       // Add read status information to each message
-      const messagesWithReadStatus = messages.map(message => {
+      const messagesWithReadStatus = messages.map((message) => {
          // Check if current user has read this message
-         const currentUserReadReceipt = message.readReceipts.find(receipt => receipt.userId === userId);
+         const currentUserReadReceipt = message.readReceipts.find((receipt) => receipt.userId === userId);
          const isReadByCurrentUser = !!currentUserReadReceipt;
 
          // Get read by info (exclude current user for group chats)
          const readBy = message.readReceipts
-            .filter(receipt => receipt.userId !== userId)
-            .map(receipt => ({
+            .filter((receipt) => receipt.userId !== userId)
+            .map((receipt) => ({
                user: receipt.user,
                readAt: receipt.readAt,
             }));
@@ -614,15 +618,19 @@ const getMessages = async (req, res, next) => {
       const unreadCount = await getUnreadCount(conversationId, userId);
 
       // Get current user's read status
-      const currentParticipant = conversation.participants.find(p => p.userId === userId);
+      const currentParticipant = conversation.participants.find((p) => p.userId === userId);
 
-      return paginatedResponse(res, { 
-         messages: items,
-         unreadCount,
-         lastReadMessageId: currentParticipant?.lastReadMessageId,
-         lastReadAt: currentParticipant?.lastReadAt,
-         participants: conversation.participants,
-      }, pagination);
+      return paginatedResponse(
+         res,
+         {
+            messages: items,
+            unreadCount,
+            lastReadMessageId: currentParticipant?.lastReadMessageId,
+            lastReadAt: currentParticipant?.lastReadAt,
+            participants: conversation.participants,
+         },
+         pagination
+      );
    } catch (error) {
       console.error('Get messages error:', error);
       next(error);
@@ -798,10 +806,12 @@ const markConversationAsRead = async (req, res, next) => {
          where: {
             conversationId,
             createdAt: {
-               lte: (await prisma.message.findUnique({
-                  where: { id: messageToMarkRead },
-                  select: { createdAt: true },
-               }))?.createdAt,
+               lte: (
+                  await prisma.message.findUnique({
+                     where: { id: messageToMarkRead },
+                     select: { createdAt: true },
+                  })
+               )?.createdAt,
             },
             senderId: { not: userId }, // Don't create read receipts for own messages
          },
@@ -809,14 +819,14 @@ const markConversationAsRead = async (req, res, next) => {
       });
 
       // Bulk create read receipts (upsert to avoid duplicates)
-      const readReceiptData = messagesToMarkRead.map(msg => ({
+      const readReceiptData = messagesToMarkRead.map((msg) => ({
          messageId: msg.id,
          userId,
       }));
 
       if (readReceiptData.length > 0) {
          await Promise.all(
-            readReceiptData.map(data =>
+            readReceiptData.map((data) =>
                prisma.messageReadReceipt.upsert({
                   where: {
                      messageId_userId: {
@@ -877,11 +887,15 @@ const getUnreadMessagesCount = async (req, res, next) => {
 
       const unreadCount = await getUnreadCount(conversationId, userId);
 
-      return successResponse(res, { 
-         unreadCount,
-         lastReadMessageId: participant.lastReadMessageId,
-         lastReadAt: participant.lastReadAt,
-      }, 'Unread count retrieved successfully');
+      return successResponse(
+         res,
+         {
+            unreadCount,
+            lastReadMessageId: participant.lastReadMessageId,
+            lastReadAt: participant.lastReadAt,
+         },
+         'Unread count retrieved successfully'
+      );
    } catch (error) {
       console.error('Get unread count error:', error);
       next(error);
@@ -932,10 +946,14 @@ const getAllUnreadCounts = async (req, res, next) => {
       // Calculate total unread count
       const totalUnreadCount = unreadCounts.reduce((total, conv) => total + conv.unreadCount, 0);
 
-      return successResponse(res, {
-         totalUnreadCount,
-         conversations: unreadCounts,
-      }, 'All unread counts retrieved successfully');
+      return successResponse(
+         res,
+         {
+            totalUnreadCount,
+            conversations: unreadCounts,
+         },
+         'All unread counts retrieved successfully'
+      );
    } catch (error) {
       console.error('Get all unread counts error:', error);
       next(error);
