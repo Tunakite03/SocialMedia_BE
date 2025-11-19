@@ -293,6 +293,7 @@ const getConversations = async (req, res, next) => {
             participants: {
                some: {
                   userId: userId,
+                  leftAt: null, // Only active conversations
                },
             },
             ...paginationConfig.where,
@@ -322,6 +323,12 @@ const getConversations = async (req, res, next) => {
                         displayName: true,
                      },
                   },
+                  readReceipts: {
+                     select: {
+                        userId: true,
+                        readAt: true,
+                     },
+                  },
                },
             },
             _count: {
@@ -335,10 +342,38 @@ const getConversations = async (req, res, next) => {
          skip: paginationConfig.skip,
          cursor: paginationConfig.cursor,
       });
-      const transformedConversations = conversations.map((conversation) => {
-         const { messages, ...conversationData } = conversation;
-         return { ...conversationData, lastMessage: messages.length > 0 ? messages[0] : null };
-      });
+
+      // Transform conversations with additional info
+      const transformedConversations = await Promise.all(
+         conversations.map(async (conversation) => {
+            const { messages, ...conversationData } = conversation;
+            
+            // Get unread count for this conversation
+            const unreadCount = await getUnreadCount(conversation.id, userId);
+            
+            // Get current user's participant info
+            const currentParticipant = conversation.participants.find(p => p.userId === userId);
+            
+            // Process last message
+            const lastMessage = messages.length > 0 ? {
+               ...messages[0],
+               isReadByCurrentUser: messages[0].readReceipts.some(receipt => receipt.userId === userId),
+               readCount: messages[0].readReceipts.length,
+            } : null;
+
+            return {
+               ...conversationData,
+               lastMessage,
+               unreadCount,
+               lastReadMessageId: currentParticipant?.lastReadMessageId,
+               lastReadAt: currentParticipant?.lastReadAt,
+               // For direct conversations, get the other participant info
+               otherParticipant: conversation.type === 'DIRECT' 
+                  ? conversation.participants.find(p => p.userId !== userId)?.user 
+                  : null,
+            };
+         })
+      );
 
       const { items, pagination } = processPaginatedResults(transformedConversations, paginationConfig);
 
@@ -471,6 +506,22 @@ const getMessages = async (req, res, next) => {
                some: { userId },
             },
          },
+         include: {
+            participants: {
+               select: {
+                  userId: true,
+                  lastReadMessageId: true,
+                  lastReadAt: true,
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                     },
+                  },
+               },
+            },
+         },
       });
 
       if (!conversation) {
@@ -517,6 +568,17 @@ const getMessages = async (req, res, next) => {
                   },
                },
             },
+            readReceipts: {
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                     },
+                  },
+               },
+            },
          },
          orderBy: paginationConfig.orderBy || { createdAt: 'desc' },
          take: paginationConfig.take,
@@ -524,9 +586,43 @@ const getMessages = async (req, res, next) => {
          cursor: paginationConfig.cursor,
       });
 
-      const { items, pagination } = processPaginatedResults(messages, paginationConfig);
+      // Add read status information to each message
+      const messagesWithReadStatus = messages.map(message => {
+         // Check if current user has read this message
+         const currentUserReadReceipt = message.readReceipts.find(receipt => receipt.userId === userId);
+         const isReadByCurrentUser = !!currentUserReadReceipt;
 
-      return paginatedResponse(res, { messages: items }, pagination);
+         // Get read by info (exclude current user for group chats)
+         const readBy = message.readReceipts
+            .filter(receipt => receipt.userId !== userId)
+            .map(receipt => ({
+               user: receipt.user,
+               readAt: receipt.readAt,
+            }));
+
+         return {
+            ...message,
+            isReadByCurrentUser,
+            readBy,
+            readCount: message.readReceipts.length,
+         };
+      });
+
+      const { items, pagination } = processPaginatedResults(messagesWithReadStatus, paginationConfig);
+
+      // Get unread count for this conversation
+      const unreadCount = await getUnreadCount(conversationId, userId);
+
+      // Get current user's read status
+      const currentParticipant = conversation.participants.find(p => p.userId === userId);
+
+      return paginatedResponse(res, { 
+         messages: items,
+         unreadCount,
+         lastReadMessageId: currentParticipant?.lastReadMessageId,
+         lastReadAt: currentParticipant?.lastReadAt,
+         participants: conversation.participants,
+      }, pagination);
    } catch (error) {
       console.error('Get messages error:', error);
       next(error);
@@ -637,6 +733,256 @@ const reactToMessage = async (req, res, next) => {
 };
 
 /**
+ * Mark conversation as read (batch update)
+ */
+const markConversationAsRead = async (req, res, next) => {
+   try {
+      const { conversationId } = req.params;
+      const userId = req.user.id;
+      const { lastMessageId } = req.body;
+
+      // Verify user is participant of conversation
+      const participant = await prisma.conversationParticipant.findFirst({
+         where: {
+            conversationId,
+            userId,
+         },
+      });
+
+      if (!participant) {
+         throw new NotFoundError('Conversation not found or access denied');
+      }
+
+      // If lastMessageId is provided, verify it exists in this conversation
+      if (lastMessageId) {
+         const message = await prisma.message.findFirst({
+            where: {
+               id: lastMessageId,
+               conversationId,
+            },
+         });
+
+         if (!message) {
+            throw new ValidationError('Message not found in this conversation');
+         }
+      }
+
+      // Get the latest message if no lastMessageId provided
+      let messageToMarkRead = lastMessageId;
+      if (!messageToMarkRead) {
+         const latestMessage = await prisma.message.findFirst({
+            where: { conversationId },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true },
+         });
+         messageToMarkRead = latestMessage?.id;
+      }
+
+      if (!messageToMarkRead) {
+         return successResponse(res, { unreadCount: 0 }, 'No messages to mark as read');
+      }
+
+      // Update participant's lastReadMessage
+      await prisma.conversationParticipant.update({
+         where: {
+            id: participant.id,
+         },
+         data: {
+            lastReadMessageId: messageToMarkRead,
+            lastReadAt: new Date(),
+         },
+      });
+
+      // Create read receipts for all messages up to the specified message
+      const messagesToMarkRead = await prisma.message.findMany({
+         where: {
+            conversationId,
+            createdAt: {
+               lte: (await prisma.message.findUnique({
+                  where: { id: messageToMarkRead },
+                  select: { createdAt: true },
+               }))?.createdAt,
+            },
+            senderId: { not: userId }, // Don't create read receipts for own messages
+         },
+         select: { id: true },
+      });
+
+      // Bulk create read receipts (upsert to avoid duplicates)
+      const readReceiptData = messagesToMarkRead.map(msg => ({
+         messageId: msg.id,
+         userId,
+      }));
+
+      if (readReceiptData.length > 0) {
+         await Promise.all(
+            readReceiptData.map(data =>
+               prisma.messageReadReceipt.upsert({
+                  where: {
+                     messageId_userId: {
+                        messageId: data.messageId,
+                        userId: data.userId,
+                     },
+                  },
+                  update: { readAt: new Date() },
+                  create: data,
+               })
+            )
+         );
+      }
+
+      // Get updated unread count
+      const unreadCount = await getUnreadCount(conversationId, userId);
+
+      // Emit to socket for real-time updates
+      const io = req.app.get('socketio');
+      if (io) {
+         io.to(`conversation_${conversationId}`).emit('messages:read', {
+            userId,
+            lastReadMessageId: messageToMarkRead,
+            readAt: new Date(),
+         });
+      }
+
+      return successResponse(res, { unreadCount, lastReadMessageId: messageToMarkRead }, 'Messages marked as read');
+   } catch (error) {
+      console.error('Mark conversation as read error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Get unread messages count for a conversation
+ */
+const getUnreadMessagesCount = async (req, res, next) => {
+   try {
+      const { conversationId } = req.params;
+      const userId = req.user.id;
+
+      // Verify user is participant of conversation
+      const participant = await prisma.conversationParticipant.findFirst({
+         where: {
+            conversationId,
+            userId,
+         },
+         select: {
+            lastReadMessageId: true,
+            lastReadAt: true,
+         },
+      });
+
+      if (!participant) {
+         throw new NotFoundError('Conversation not found or access denied');
+      }
+
+      const unreadCount = await getUnreadCount(conversationId, userId);
+
+      return successResponse(res, { 
+         unreadCount,
+         lastReadMessageId: participant.lastReadMessageId,
+         lastReadAt: participant.lastReadAt,
+      }, 'Unread count retrieved successfully');
+   } catch (error) {
+      console.error('Get unread count error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Get all unread messages count grouped by conversation
+ */
+const getAllUnreadCounts = async (req, res, next) => {
+   try {
+      const userId = req.user.id;
+
+      // Get all conversations where user is a participant
+      const conversations = await prisma.conversationParticipant.findMany({
+         where: {
+            userId,
+            leftAt: null, // Only active conversations
+         },
+         select: {
+            conversationId: true,
+            lastReadMessageId: true,
+            lastReadAt: true,
+            conversation: {
+               select: {
+                  id: true,
+                  title: true,
+                  type: true,
+               },
+            },
+         },
+      });
+
+      // Get unread counts for each conversation
+      const unreadCounts = await Promise.all(
+         conversations.map(async (conv) => {
+            const unreadCount = await getUnreadCount(conv.conversationId, userId);
+            return {
+               conversationId: conv.conversationId,
+               conversation: conv.conversation,
+               unreadCount,
+               lastReadMessageId: conv.lastReadMessageId,
+               lastReadAt: conv.lastReadAt,
+            };
+         })
+      );
+
+      // Calculate total unread count
+      const totalUnreadCount = unreadCounts.reduce((total, conv) => total + conv.unreadCount, 0);
+
+      return successResponse(res, {
+         totalUnreadCount,
+         conversations: unreadCounts,
+      }, 'All unread counts retrieved successfully');
+   } catch (error) {
+      console.error('Get all unread counts error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Helper function to calculate unread count for a conversation
+ */
+const getUnreadCount = async (conversationId, userId) => {
+   const participant = await prisma.conversationParticipant.findFirst({
+      where: {
+         conversationId,
+         userId,
+      },
+      select: {
+         lastReadAt: true,
+         lastReadMessage: {
+            select: {
+               createdAt: true,
+            },
+         },
+      },
+   });
+
+   if (!participant) return 0;
+
+   // Count messages created after the last read message/time
+   const whereCondition = {
+      conversationId,
+      senderId: { not: userId }, // Exclude own messages
+   };
+
+   if (participant.lastReadMessage) {
+      whereCondition.createdAt = {
+         gt: participant.lastReadMessage.createdAt,
+      };
+   } else if (participant.lastReadAt) {
+      whereCondition.createdAt = {
+         gt: participant.lastReadAt,
+      };
+   }
+
+   return await prisma.message.count({ where: whereCondition });
+};
+
+/**
  * Upload message attachment
  */
 const uploadAttachment = async (req, res, next) => {
@@ -698,4 +1044,7 @@ module.exports = {
    reactToMessage,
    uploadAttachment,
    getConversation,
+   markConversationAsRead,
+   getUnreadMessagesCount,
+   getAllUnreadCounts,
 };

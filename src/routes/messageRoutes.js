@@ -12,6 +12,9 @@ const {
    reactToMessage,
    uploadAttachment,
    getConversation,
+   markConversationAsRead,
+   getUnreadMessagesCount,
+   getAllUnreadCounts,
 } = require('../controllers/messageController');
 
 // Conversation routes
@@ -27,5 +30,10 @@ router.post('/:conversationId/messages', authenticate, sendMessage);
 // Message interaction routes
 router.post('/messages/:messageId/react', authenticate, reactToMessage);
 router.post('/messages/:messageId/attachments', authenticate, uploadMiddleware.single('file'), uploadAttachment);
+
+// Read status routes
+router.post('/:conversationId/read', authenticate, markConversationAsRead);
+router.get('/:conversationId/unread-count', authenticate, getUnreadMessagesCount);
+router.get('/unread-counts', authenticate, getAllUnreadCounts);
 
 module.exports = router;

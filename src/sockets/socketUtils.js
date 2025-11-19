@@ -432,13 +432,119 @@ const handleMessaging = (socket, io) => {
       });
    });
 
-   // Mark message as read (optional feature for later)
+   // Mark messages as read (batch)
+   socket.on('conversation:markAsRead', async (data) => {
+      try {
+         const { conversationId, lastMessageId } = data;
+         const userId = socket.userId;
+
+         // Verify user is participant
+         const participant = await prisma.conversationParticipant.findFirst({
+            where: {
+               conversationId,
+               userId,
+            },
+         });
+
+         if (!participant) {
+            socket.emit('error', { message: 'Access denied to this conversation' });
+            return;
+         }
+
+         // Get the message to mark as last read
+         let messageToMarkRead = lastMessageId;
+         if (!messageToMarkRead) {
+            const latestMessage = await prisma.message.findFirst({
+               where: { conversationId },
+               orderBy: { createdAt: 'desc' },
+               select: { id: true },
+            });
+            messageToMarkRead = latestMessage?.id;
+         }
+
+         if (!messageToMarkRead) return;
+
+         // Update participant's lastReadMessage
+         await prisma.conversationParticipant.update({
+            where: { id: participant.id },
+            data: {
+               lastReadMessageId: messageToMarkRead,
+               lastReadAt: new Date(),
+            },
+         });
+
+         // Create read receipts for unread messages
+         const messagesToMarkRead = await prisma.message.findMany({
+            where: {
+               conversationId,
+               createdAt: {
+                  lte: (await prisma.message.findUnique({
+                     where: { id: messageToMarkRead },
+                     select: { createdAt: true },
+                  }))?.createdAt,
+               },
+               senderId: { not: userId },
+            },
+            select: { id: true },
+         });
+
+         // Bulk create read receipts
+         const readReceiptData = messagesToMarkRead.map(msg => ({
+            messageId: msg.id,
+            userId,
+         }));
+
+         if (readReceiptData.length > 0) {
+            await Promise.all(
+               readReceiptData.map(data =>
+                  prisma.messageReadReceipt.upsert({
+                     where: {
+                        messageId_userId: {
+                           messageId: data.messageId,
+                           userId: data.userId,
+                        },
+                     },
+                     update: { readAt: new Date() },
+                     create: data,
+                  })
+               )
+            );
+         }
+
+         // Emit read status to conversation
+         io.to(`conversation_${conversationId}`).emit('messages:read', {
+            userId,
+            lastReadMessageId: messageToMarkRead,
+            readAt: new Date(),
+         });
+
+      } catch (error) {
+         console.error('Error marking conversation as read:', error);
+         socket.emit('error', { message: 'Failed to mark as read' });
+      }
+   });
+
+   // Mark single message as read (legacy support)
    socket.on('message:read', async (data) => {
       try {
          const { messageId } = data;
 
-         // For now, we can just emit the read event
-         // Later we can implement read receipts with a separate table
+         // Create read receipt
+         await prisma.messageReadReceipt.upsert({
+            where: {
+               messageId_userId: {
+                  messageId,
+                  userId: socket.userId,
+               },
+            },
+            update: { readAt: new Date() },
+            create: {
+               messageId,
+               userId: socket.userId,
+            },
+         });
+
+         // Get message info
          const message = await prisma.message.findUnique({
             where: { id: messageId },
             include: {
@@ -448,8 +554,8 @@ const handleMessaging = (socket, io) => {
          });
 
          if (message) {
-            // Notify sender about read receipt
-            io.to(`user_${message.sender.id}`).emit('message:read', {
+            // Notify conversation about read receipt
+            io.to(`conversation_${message.conversation.id}`).emit('message:read', {
                messageId,
                readBy: socket.userId,
                readAt: new Date(),

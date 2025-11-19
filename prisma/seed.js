@@ -63,8 +63,6 @@ async function main() {
       },
    });
 
-   console.log('✅ Admin user created:', adminUser.email);
-
    // Create test users
    const testUsers = [
       {
