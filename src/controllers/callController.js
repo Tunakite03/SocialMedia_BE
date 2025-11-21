@@ -1,6 +1,20 @@
 const prisma = require('../config/database');
 const { successResponse } = require('../utils/responseFormatter');
 const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
+const webrtcService = require('../services/webrtcService');
+
+// Global call ID mapping (same as in socketUtils)
+const callIdMapping = global.callIdMapping || (global.callIdMapping = new Map());
+
+// Helper function to resolve call ID (handle custom call IDs)
+const resolveCallId = (callId) => {
+   // If it's a UUID (36 chars with dashes), use it directly
+   if (callId && callId.length === 36 && callId.includes('-')) {
+      return callId;
+   }
+   // Otherwise, check if it's a mapped custom call ID
+   return callIdMapping.get(callId) || callId;
+};
 
 /**
  * Initiate call in conversation
@@ -113,6 +127,11 @@ const initiateCall = async (req, res, next) => {
          )
       );
 
+      // Initialize WebRTC session
+      await webrtcService.initializeCall(call.id, initiatorId, callParticipants);
+
+      console.log(`[DEBUG] Created call with ID: ${call.id}`);
+
       // Emit to socket for real-time updates
       const io = req.app.get('socketio');
       if (io) {
@@ -120,7 +139,10 @@ const initiateCall = async (req, res, next) => {
          conversation.participants.forEach((participant) => {
             if (participant.userId !== initiatorId) {
                io.to(`user_${participant.userId}`).emit('call:incoming', {
-                  call,
+                  call: {
+                     ...call,
+                     iceServers: webrtcService.getIceServers(),
+                  },
                   participants: callParticipants,
                });
             }
@@ -128,7 +150,10 @@ const initiateCall = async (req, res, next) => {
 
          // Update conversation room
          io.to(`conversation_${conversationId}`).emit('call:initiated', {
-            call,
+            call: {
+               ...call,
+               iceServers: webrtcService.getIceServers(),
+            },
             participants: callParticipants,
          });
       }
@@ -490,6 +515,239 @@ const saveTranscript = async (req, res, next) => {
    }
 };
 
+//////////////////////////////////////////////////////////////////////////////////
+/**
+ * Get ICE servers configuration for WebRTC
+ */
+const getIceServers = async (req, res, next) => {
+   try {
+      const iceServers = webrtcService.getIceServers();
+
+      return successResponse(res, { iceServers }, 'ICE servers retrieved successfully');
+   } catch (error) {
+      console.error('Get ICE servers error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Join call room for WebRTC signaling
+ */
+const joinCallRoom = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const userId = req.user.id;
+
+      const realCallId = resolveCallId(callId);
+
+      console.log(`[DEBUG] Join call room request - Custom: ${callId}, Real: ${realCallId}, UserID: ${userId}`);
+
+      // Verify call exists and user is participant
+      const call = await prisma.call.findFirst({
+         where: {
+            id: realCallId,
+            status: { in: ['RINGING', 'ONGOING'] },
+            participants: {
+               some: { userId },
+            },
+         },
+         include: {
+            conversation: { select: { id: true } },
+            participants: {
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                        avatar: true,
+                     },
+                  },
+               },
+            },
+         },
+      });
+
+      console.log(`[DEBUG] Found call: ${call ? 'YES' : 'NO'}`);
+      if (!call) {
+         // Let's also check if the call exists at all (regardless of status/participants)
+         const anyCall = await prisma.call.findUnique({
+            where: { id: realCallId },
+         });
+         console.log(`[DEBUG] Call exists in DB: ${anyCall ? 'YES' : 'NO'}`);
+         if (anyCall) {
+            console.log(
+               `[DEBUG] Call status: ${anyCall.status}, Call participants count: ${
+                  anyCall.participants?.length || 'N/A'
+               }`
+            );
+         }
+         throw new NotFoundError('Call not found or cannot be joined');
+      }
+
+      // Get ICE servers and call info
+      const iceServers = webrtcService.getIceServers();
+      const callSession = webrtcService.getCallSession(realCallId);
+
+      return successResponse(
+         res,
+         {
+            call: { ...call, id: callId }, // Return the original call ID to frontend
+            iceServers,
+            session: callSession
+               ? {
+                    id: callSession.id,
+                    participants: Array.from(callSession.participants.values()),
+                    status: callSession.status,
+                 }
+               : null,
+         },
+         'Call room joined successfully'
+      );
+   } catch (error) {
+      console.error('Join call room error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Update call quality metrics
+ */
+const updateQualityMetrics = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const userId = req.user.id;
+      const metrics = req.body;
+
+      const realCallId = resolveCallId(callId);
+
+      // Verify call exists and user is participant
+      const call = await prisma.call.findFirst({
+         where: {
+            id: realCallId,
+            participants: {
+               some: { userId },
+            },
+         },
+      });
+
+      if (!call) {
+         // Log warning but don't fail - this allows frontend to send metrics before call is fully created
+         console.warn(
+            `[WARNING] Quality metrics received for non-existent or inaccessible call: ${callId} (resolved: ${realCallId}), user: ${userId}`
+         );
+         console.log(`[DEBUG] Metrics data:`, metrics);
+         // Return success to prevent frontend from retrying with errors
+         return successResponse(res, {}, 'Quality metrics logged (call not found)');
+      }
+
+      // Update metrics
+      await webrtcService.updateQualityMetrics(realCallId, userId, metrics);
+
+      return successResponse(res, {}, 'Quality metrics updated successfully');
+   } catch (error) {
+      console.error('Update quality metrics error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Update media state (mute/unmute, video on/off)
+ */
+const updateMediaState = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const userId = req.user.id;
+      const { audio, video } = req.body;
+
+      const realCallId = resolveCallId(callId);
+
+      // Verify call exists and user is participant
+      const call = await prisma.call.findFirst({
+         where: {
+            id: realCallId,
+            status: 'ONGOING',
+            participants: {
+               some: { userId },
+            },
+         },
+         include: {
+            conversation: { select: { id: true } },
+         },
+      });
+
+      if (!call) {
+         throw new NotFoundError('Call not found or access denied');
+      }
+
+      // Update media state
+      const mediaState = await webrtcService.updateMediaState(realCallId, userId, { audio, video });
+
+      // Emit to call room
+      const io = req.app.get('socketio');
+      if (io) {
+         io.to(`call_${realCallId}`).emit('call:media_state_changed', {
+            callId,
+            userId,
+            mediaState,
+         });
+      }
+
+      return successResponse(res, { mediaState }, 'Media state updated successfully');
+   } catch (error) {
+      console.error('Update media state error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Get call statistics
+ */
+const getCallStats = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const userId = req.user.id;
+
+      const realCallId = resolveCallId(callId);
+
+      // Verify call exists and user is participant
+      const call = await prisma.call.findFirst({
+         where: {
+            id: realCallId,
+            participants: {
+               some: { userId },
+            },
+         },
+      });
+
+      if (!call) {
+         throw new NotFoundError('Call not found or access denied');
+      }
+
+      // Get call statistics
+      const stats = webrtcService.getCallStats(realCallId);
+
+      // Get quality metrics from database
+      const qualityMetrics = await prisma.callQualityMetric.findMany({
+         where: { callId: realCallId },
+         orderBy: { timestamp: 'desc' },
+         take: 10,
+      });
+
+      return successResponse(
+         res,
+         {
+            stats,
+            qualityMetrics,
+         },
+         'Call statistics retrieved successfully'
+      );
+   } catch (error) {
+      console.error('Get call stats error:', error);
+      next(error);
+   }
+};
+
 module.exports = {
    initiateCall,
    answerCall,
@@ -497,4 +755,9 @@ module.exports = {
    rejectCall,
    getCallHistory,
    saveTranscript,
+   getIceServers,
+   joinCallRoom,
+   updateQualityMetrics,
+   updateMediaState,
+   getCallStats,
 };

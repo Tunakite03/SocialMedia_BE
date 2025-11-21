@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,6 +5,352 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String                    @id @default(uuid())
+  email               String                    @unique
+  username            String                    @unique
+  password            String
+  displayName         String
+  avatar              String?
+  bio                 String?
+  dateOfBirth         DateTime?
+  role                UserRole                  @default(USER)
+  isActive            Boolean                   @default(true)
+  isOnline            Boolean                   @default(false)
+  lastSeen            DateTime?
+  emailVerified       Boolean                   @default(false)
+  resetToken          String?                   @unique
+  resetTokenExpiry    DateTime?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  callParticipants    CallParticipant[]
+  qualityMetrics      CallQualityMetric[]       @relation("CallQualityUser")
+  signalingEvents     CallSignalingEvent[]      @relation("CallSignalingUser")
+  callTranscripts     CallTranscript[]          @relation("CallTranscriptSpeaker")
+  initiatedCalls      Call[]                    @relation("CallInitiator")
+  comments            Comment[]
+  conversations       ConversationParticipant[]
+  followers           Follow[]                  @relation("UserFollowers")
+  following           Follow[]                  @relation("UserFollowing")
+  messageReactions    MessageReaction[]
+  messageReadReceipts MessageReadReceipt[]
+  sentMessages        Message[]                 @relation("SentMessages")
+  notifications       Notification[]            @relation("NotificationReceiver")
+  sentNotifications   Notification[]            @relation("NotificationSender")
+  posts               Post[]
+  reactions           Reaction[]
+  sentimentAnalyses   SentimentAnalysis[]
+  sessions            Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  refreshToken String   @unique
+  ipAddress    String?
+  userAgent    String?
+  isActive     Boolean  @default(true)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([refreshToken])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Follow {
+  id          String   @id @default(uuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+  follower    User     @relation("UserFollowers", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("UserFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@map("follows")
+}
+
+model Post {
+  id        String     @id @default(uuid())
+  content   String
+  type      PostType   @default(TEXT)
+  mediaUrl  String?
+  isPublic  Boolean    @default(true)
+  authorId  String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  comments  Comment[]
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reactions Reaction[]
+
+  @@index([isPublic, createdAt(sort: Desc)])
+  @@index([type, isPublic, createdAt(sort: Desc)])
+  @@index([authorId, createdAt(sort: Desc)])
+  @@map("posts")
+}
+
+model Comment {
+  id        String     @id @default(uuid())
+  content   String
+  postId    String
+  authorId  String
+  parentId  String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent    Comment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[]  @relation("CommentReplies")
+  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reactions Reaction[]
+
+  @@map("comments")
+}
+
+model Reaction {
+  id        String       @id @default(uuid())
+  type      ReactionType
+  userId    String
+  postId    String?
+  commentId String?
+  createdAt DateTime     @default(now())
+  comment   Comment?     @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  post      Post?        @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@unique([userId, commentId])
+  @@map("reactions")
+}
+
+model Conversation {
+  id           String                    @id @default(uuid())
+  title        String?
+  type         ConversationType          @default(DIRECT)
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  calls        Call[]
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id                String                 @id @default(uuid())
+  conversationId    String
+  userId            String
+  role              ConversationMemberRole @default(MEMBER)
+  joinedAt          DateTime               @default(now())
+  leftAt            DateTime?
+  lastReadMessageId String?
+  lastReadAt        DateTime?
+  conversation      Conversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  lastReadMessage   Message?               @relation("UserLastReadMessage", fields: [lastReadMessageId], references: [id])
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@index([lastReadMessageId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id              String                    @id @default(uuid())
+  content         String
+  type            MessageType               @default(TEXT)
+  mediaUrl        String?
+  conversationId  String
+  senderId        String
+  parentId        String?
+  isRead          Boolean                   @default(false)
+  readAt          DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  lastReadByUsers ConversationParticipant[] @relation("UserLastReadMessage")
+  attachments     MessageAttachment[]
+  reactions       MessageReaction[]
+  readReceipts    MessageReadReceipt[]
+  conversation    Conversation              @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  parent          Message?                  @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies         Message[]                 @relation("MessageReplies")
+  sender          User                      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+model MessageAttachment {
+  id        String      @id @default(uuid())
+  messageId String
+  url       String
+  type      MessageType
+  size      Int?
+  createdAt DateTime    @default(now())
+  message   Message     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+model MessageReaction {
+  id        String       @id @default(uuid())
+  messageId String
+  userId    String
+  type      ReactionType
+  createdAt DateTime     @default(now())
+  message   Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, type])
+  @@index([userId])
+  @@map("message_reactions")
+}
+
+model MessageReadReceipt {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId, readAt])
+  @@index([messageId, readAt])
+  @@map("message_read_receipts")
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  type       NotificationType
+  title      String
+  message    String
+  isRead     Boolean          @default(false)
+  receiverId String
+  senderId   String?
+  entityId   String?
+  entityType String?
+  createdAt  DateTime         @default(now())
+  receiver   User             @relation("NotificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  sender     User?            @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model Call {
+  id              String               @id @default(uuid())
+  conversationId  String
+  type            CallType
+  status          CallStatus           @default(PENDING)
+  duration        Int?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime             @default(now())
+  initiatorId     String
+  iceServers      Json?
+  metadata        Json?
+  updatedAt       DateTime             @default(now()) @updatedAt
+  participants    CallParticipant[]
+  qualityMetrics  CallQualityMetric[]
+  signalingEvents CallSignalingEvent[]
+  transcripts     CallTranscript[]
+  conversation    Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  initiator       User                 @relation("CallInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, startedAt])
+  @@map("calls")
+}
+
+model CallParticipant {
+  id        String                @id @default(uuid())
+  callId    String
+  userId    String
+  joinedAt  DateTime?
+  leftAt    DateTime?
+  status    CallParticipantStatus @default(INVITED)
+  metadata  Json?
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @default(now()) @updatedAt
+  call      Call                  @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@index([userId])
+  @@index([callId, status])
+  @@map("call_participants")
+}
+
+model CallTranscript {
+  id         String   @id @default(uuid())
+  callId     String
+  language   String?
+  transcript String
+  confidence Float?
+  createdAt  DateTime @default(now())
+  speakerId  String?
+  timestamp  DateTime @default(now())
+  call       Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  speaker    User?    @relation("CallTranscriptSpeaker", fields: [speakerId], references: [id], onDelete: Cascade)
+
+  @@index([callId, createdAt])
+  @@map("call_transcripts")
+}
+
+model CallSignalingEvent {
+  id        String   @id @default(uuid())
+  callId    String
+  userId    String
+  eventType String
+  data      Json
+  timestamp DateTime @default(now())
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user      User     @relation("CallSignalingUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([callId, eventType, timestamp])
+  @@map("call_signaling_events")
+}
+
+model CallQualityMetric {
+  id              String   @id @default(uuid())
+  callId          String
+  userId          String
+  packetLoss      Float?
+  jitter          Float?
+  roundTripTime   Float?
+  audioLevel      Float?
+  videoResolution String?
+  frameRate       Float?
+  bandwidth       Float?
+  connectionState String?
+  timestamp       DateTime @default(now())
+  call            Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user            User     @relation("CallQualityUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([callId, timestamp])
+  @@map("call_quality_metrics")
+}
+
+model SentimentAnalysis {
+  id         String        @id @default(uuid())
+  content    String
+  sentiment  SentimentType
+  confidence Float
+  userId     String
+  entityId   String
+  entityType String
+  createdAt  DateTime      @default(now())
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sentiment_analyses")
 }
 
 enum UserRole {
@@ -51,6 +394,7 @@ enum NotificationType {
 enum CallType {
   VOICE
   VIDEO
+  AUDIO
 }
 
 enum CallStatus {
@@ -58,6 +402,17 @@ enum CallStatus {
   ONGOING
   ENDED
   MISSED
+  RINGING
+  REJECTED
+  FAILED
+}
+
+enum CallParticipantStatus {
+  INVITED
+  JOINED
+  LEFT
+  REJECTED
+  FAILED
 }
 
 enum ReactionType {
@@ -73,314 +428,4 @@ enum SentimentType {
   POSITIVE
   NEUTRAL
   NEGATIVE
-}
-
-model User {
-  id               String    @id @default(uuid())
-  email            String    @unique
-  username         String    @unique
-  password         String
-  displayName      String
-  avatar           String?
-  bio              String?
-  dateOfBirth      DateTime?
-  role             UserRole  @default(USER)
-  isActive         Boolean   @default(true)
-  isOnline         Boolean   @default(false)
-  lastSeen         DateTime?
-  emailVerified    Boolean   @default(false)
-  resetToken       String?   @unique
-  resetTokenExpiry DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  // Relations
-  posts             Post[]
-  comments          Comment[]
-  reactions         Reaction[]
-  sentMessages      Message[]                 @relation("SentMessages")
-  conversations     ConversationParticipant[]
-  notifications     Notification[]            @relation("NotificationReceiver")
-  sentNotifications Notification[]            @relation("NotificationSender")
-  initiatedCalls    Call[]                    @relation("CallInitiator")
-  receivedCalls     Call[]                    @relation("CallReceiver")
-  followers         Follow[]                  @relation("UserFollowers")
-  following         Follow[]                  @relation("UserFollowing")
-  sentimentAnalyses SentimentAnalysis[]
-  sessions          Session[]
-  messageReactions  MessageReaction[]
-  callParticipants  CallParticipant[]
-
-  @@map("users")
-}
-
-model Session {
-  id           String   @id @default(uuid())
-  userId       String
-  refreshToken String   @unique
-  ipAddress    String?
-  userAgent    String?
-  isActive     Boolean  @default(true)
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, isActive])
-  @@index([refreshToken])
-  @@index([expiresAt])
-  @@map("sessions")
-}
-
-model Follow {
-  id          String   @id @default(uuid())
-  followerId  String
-  followingId String
-  createdAt   DateTime @default(now())
-
-  follower  User @relation("UserFollowers", fields: [followerId], references: [id], onDelete: Cascade)
-  following User @relation("UserFollowing", fields: [followingId], references: [id], onDelete: Cascade)
-
-  @@unique([followerId, followingId])
-  @@map("follows")
-}
-
-model Post {
-  id        String   @id @default(uuid())
-  content   String
-  type      PostType @default(TEXT)
-  mediaUrl  String?
-  isPublic  Boolean  @default(true)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  comments  Comment[]
-  reactions Reaction[]
-
-  // Indexes for performance optimization
-  @@index([isPublic, createdAt(sort: Desc)]) // For feed pagination
-  @@index([type, isPublic, createdAt(sort: Desc)]) // For filtered feed
-  @@index([authorId, createdAt(sort: Desc)]) // For user posts
-  @@map("posts")
-}
-
-model Comment {
-  id        String   @id @default(uuid())
-  content   String
-  postId    String
-  authorId  String
-  parentId  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  parent    Comment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   Comment[]  @relation("CommentReplies")
-  reactions Reaction[]
-
-  @@map("comments")
-}
-
-model Reaction {
-  id        String       @id @default(uuid())
-  type      ReactionType
-  userId    String
-  postId    String?
-  commentId String?
-  createdAt DateTime     @default(now())
-
-  // Relations
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
-  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, postId])
-  @@unique([userId, commentId])
-  @@map("reactions")
-}
-
-model Conversation {
-  id        String           @id @default(uuid())
-  title     String?
-  type      ConversationType @default(DIRECT)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-
-  // Relations
-  participants ConversationParticipant[]
-  messages     Message[]
-  calls        Call[]
-
-  @@map("conversations")
-}
-
-model ConversationParticipant {
-  id             String                 @id @default(uuid())
-  conversationId String
-  userId         String
-  role           ConversationMemberRole @default(MEMBER)
-  joinedAt       DateTime               @default(now())
-  leftAt         DateTime?
-
-  // Relations
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([conversationId, userId])
-  @@index([userId])
-  @@map("conversation_participants")
-}
-
-model Message {
-  id             String      @id @default(uuid())
-  content        String
-  type           MessageType @default(TEXT)
-  mediaUrl       String?
-  conversationId String
-  senderId       String
-  parentId       String? // For reply feature
-  isRead         Boolean     @default(false)
-  readAt         DateTime?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-
-  // Relations
-  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User                @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  parent       Message?            @relation("MessageReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies      Message[]           @relation("MessageReplies")
-  attachments  MessageAttachment[]
-  reactions    MessageReaction[]
-
-  @@index([conversationId, createdAt])
-  @@index([senderId])
-  @@map("messages")
-}
-
-model MessageAttachment {
-  id        String      @id @default(uuid())
-  messageId String
-  url       String
-  type      MessageType
-  size      Int? // File size in bytes
-  createdAt DateTime    @default(now())
-
-  // Relations
-  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
-
-  @@index([messageId])
-  @@map("message_attachments")
-}
-
-model MessageReaction {
-  id        String       @id @default(uuid())
-  messageId String
-  userId    String
-  type      ReactionType
-  createdAt DateTime     @default(now())
-
-  // Relations
-  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([messageId, userId, type])
-  @@index([userId])
-  @@map("message_reactions")
-}
-
-model Notification {
-  id         String           @id @default(uuid())
-  type       NotificationType
-  title      String
-  message    String
-  isRead     Boolean          @default(false)
-  receiverId String
-  senderId   String?
-  entityId   String?
-  entityType String?
-  createdAt  DateTime         @default(now())
-
-  // Relations
-  receiver User  @relation("NotificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
-  sender   User? @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
-
-  @@map("notifications")
-}
-
-model Call {
-  id             String     @id @default(uuid())
-  conversationId String
-  type           CallType
-  status         CallStatus @default(PENDING)
-  duration       Int? // in seconds
-  callerId       String
-  receiverId     String
-  startedAt      DateTime?
-  endedAt        DateTime?
-  createdAt      DateTime   @default(now())
-
-  // Relations
-  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  caller       User              @relation("CallInitiator", fields: [callerId], references: [id], onDelete: Cascade)
-  receiver     User              @relation("CallReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
-  participants CallParticipant[]
-  transcripts  CallTranscript[]
-
-  @@index([conversationId, startedAt])
-  @@map("calls")
-}
-
-model CallParticipant {
-  id       String    @id @default(uuid())
-  callId   String
-  userId   String
-  joinedAt DateTime  @default(now())
-  leftAt   DateTime?
-
-  // Relations
-  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([callId, userId])
-  @@index([userId])
-  @@map("call_participants")
-}
-
-model CallTranscript {
-  id         String   @id @default(uuid())
-  callId     String
-  language   String
-  provider   String
-  text       String
-  confidence Float?
-  createdAt  DateTime @default(now())
-
-  // Relations
-  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
-
-  @@index([callId, createdAt])
-  @@map("call_transcripts")
-}
-
-model SentimentAnalysis {
-  id         String        @id @default(uuid())
-  content    String
-  sentiment  SentimentType
-  confidence Float
-  userId     String
-  entityId   String // Can be postId, commentId, messageId
-  entityType String // 'post', 'comment', 'message'
-  createdAt  DateTime      @default(now())
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("sentiment_analyses")
 }
