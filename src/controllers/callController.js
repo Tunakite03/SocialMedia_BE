@@ -17,7 +17,7 @@ const resolveCallId = (callId) => {
 };
 
 /**
- * Initiate call in conversation
+ * Initiate call in conversation (REST)
  */
 const initiateCall = async (req, res, next) => {
    try {
@@ -64,9 +64,9 @@ const initiateCall = async (req, res, next) => {
          },
       });
 
-      if (activeCall) {
-         throw new ValidationError('There is already an active call in this conversation');
-      }
+      // if (activeCall) {
+      //    throw new ValidationError('There is already an active call in this conversation');
+      // }
 
       // Create call
       const call = await prisma.call.create({
@@ -135,27 +135,26 @@ const initiateCall = async (req, res, next) => {
       // Emit to socket for real-time updates
       const io = req.app.get('socketio');
       if (io) {
-         // Notify all participants except initiator
-         conversation.participants.forEach((participant) => {
-            if (participant.userId !== initiatorId) {
-               io.to(`user_${participant.userId}`).emit('call:incoming', {
-                  call: {
-                     ...call,
-                     iceServers: webrtcService.getIceServers(),
-                  },
-                  participants: callParticipants,
-               });
-            }
-         });
-
-         // Update conversation room
-         io.to(`conversation_${conversationId}`).emit('call:initiated', {
+         const basePayload = {
+            callId: call.id,
+            caller: call.initiator,
+            type: call.type.toLowerCase() === 'video' ? 'video' : 'audio',
             call: {
                ...call,
                iceServers: webrtcService.getIceServers(),
             },
             participants: callParticipants,
+         };
+
+         // Notify all participants except initiator
+         conversation.participants.forEach((participant) => {
+            if (participant.userId !== initiatorId) {
+               io.to(`user_${participant.userId}`).emit('call:incoming', basePayload);
+            }
          });
+
+         // Update conversation room
+         io.to(`conversation_${conversationId}`).emit('call:initiated', basePayload);
       }
 
       return successResponse(
@@ -236,9 +235,17 @@ const answerCall = async (req, res, next) => {
       // Emit to socket for real-time updates
       const io = req.app.get('socketio');
       if (io) {
+         // Legacy event (nếu code cũ có dùng)
          io.to(`conversation_${call.conversation.id}`).emit('call:answered', {
             callId,
             userId,
+            call: updatedCall,
+         });
+
+         // Event mới FE WebRTC đang dùng
+         io.to(`conversation_${call.conversation.id}`).emit('call:accepted', {
+            callId,
+            acceptedBy: userId,
             call: updatedCall,
          });
       }
@@ -305,11 +312,16 @@ const endCall = async (req, res, next) => {
       // Emit to socket for real-time updates
       const io = req.app.get('socketio');
       if (io) {
-         io.to(`conversation_${call.conversation.id}`).emit('call:ended', {
+         const payload = {
             callId,
             endedBy: userId,
             call: updatedCall,
-         });
+         };
+
+         io.to(`conversation_${call.conversation.id}`).emit('call:ended', payload);
+
+         // Optional alias nếu FE có nghe 'call:end'
+         io.to(`conversation_${call.conversation.id}`).emit('call:end', payload);
       }
 
       return successResponse(res, { call: updatedCall }, 'Call ended successfully');
@@ -748,6 +760,160 @@ const getCallStats = async (req, res, next) => {
    }
 };
 
+/**
+ * Handle user disconnect during call - end call gracefully
+ */
+const handleUserDisconnectFromCall = async (userId) => {
+   try {
+      // Find any active calls this user is participating in
+      const activeCalls = await prisma.call.findMany({
+         where: {
+            status: {
+               in: ['RINGING', 'ONGOING'],
+            },
+            participants: {
+               some: {
+                  userId,
+                  status: {
+                     in: ['INVITED', 'JOINED'],
+                  },
+               },
+            },
+         },
+         include: {
+            participants: true,
+            conversation: { select: { id: true } },
+         },
+      });
+
+      for (const call of activeCalls) {
+         // Update user's participant status
+         await prisma.callParticipant.updateMany({
+            where: {
+               callId: call.id,
+               userId,
+            },
+            data: {
+               status: 'LEFT',
+               leftAt: new Date(),
+            },
+         });
+
+         // Check if this was the last active participant
+         const remainingActiveParticipants = await prisma.callParticipant.count({
+            where: {
+               callId: call.id,
+               status: {
+                  in: ['INVITED', 'JOINED'],
+               },
+            },
+         });
+
+         // If no one left, end the call
+         if (remainingActiveParticipants === 0) {
+            await prisma.call.update({
+               where: { id: call.id },
+               data: {
+                  status: call.status === 'RINGING' ? 'MISSED' : 'ENDED',
+                  endedAt: new Date(),
+               },
+            });
+
+            console.log(`[DISCONNECT] Call ${call.id} ended due to all participants leaving`);
+         }
+
+         // Emit disconnect event
+         const io = global.io;
+         if (io) {
+            io.to(`conversation_${call.conversation.id}`).emit('call:participant_disconnected', {
+               callId: call.id,
+               userId,
+               remainingParticipants: remainingActiveParticipants,
+               timestamp: new Date(),
+            });
+         }
+      }
+   } catch (error) {
+      console.error('Handle user disconnect from call error:', error);
+   }
+};
+
+/**
+ * Mark call as failed
+ */
+const markCallAsFailed = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const { reason } = req.body;
+      const userId = req.user.id;
+
+      const realCallId = resolveCallId(callId);
+
+      // Find call and verify user is participant
+      const call = await prisma.call.findFirst({
+         where: {
+            id: realCallId,
+            status: {
+               in: ['RINGING', 'ONGOING'],
+            },
+            participants: {
+               some: { userId },
+            },
+         },
+         include: {
+            conversation: { select: { id: true } },
+         },
+      });
+
+      if (!call) {
+         throw new NotFoundError('Call not found or cannot be marked as failed');
+      }
+
+      // Update call status to failed
+      const updatedCall = await prisma.call.update({
+         where: { id: realCallId },
+         data: {
+            status: 'FAILED',
+            endedAt: new Date(),
+            metadata: {
+               failureReason: reason || 'Connection failed',
+               failedBy: userId,
+            },
+         },
+      });
+
+      // Update all participants status
+      await prisma.callParticipant.updateMany({
+         where: {
+            callId: realCallId,
+            status: {
+               in: ['INVITED', 'JOINED'],
+            },
+         },
+         data: {
+            status: 'FAILED',
+            leftAt: new Date(),
+         },
+      });
+
+      // Log call failure
+      console.log(`[FAILURE] Call ${realCallId} marked as failed by user ${userId}`); // Emit failure event
+      const io = req.app.get('socketio');
+      if (io) {
+         io.to(`conversation_${call.conversation.id}`).emit('call:failed', {
+            callId,
+            reason: reason || 'Connection failed',
+            call: updatedCall,
+         });
+      }
+
+      return successResponse(res, { call: updatedCall }, 'Call marked as failed');
+   } catch (error) {
+      console.error('Mark call as failed error:', error);
+      next(error);
+   }
+};
+
 module.exports = {
    initiateCall,
    answerCall,
@@ -760,4 +926,6 @@ module.exports = {
    updateQualityMetrics,
    updateMediaState,
    getCallStats,
+   markCallAsFailed,
+   handleUserDisconnectFromCall,
 };

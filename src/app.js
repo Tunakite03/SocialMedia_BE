@@ -102,6 +102,7 @@ const io = new Server(server, {
    },
 });
 app.set('socketio', io);
+global.io = io; // Make io globally accessible for cleanup service
 socketHandler(io);
 
 // ===== Health check =====

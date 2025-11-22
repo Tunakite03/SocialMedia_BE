@@ -14,6 +14,7 @@ const {
    updateQualityMetrics,
    updateMediaState,
    getCallStats,
+   markCallAsFailed,
 } = require('../controllers/callController');
 
 // Call management routes
@@ -21,6 +22,7 @@ router.post('/initiate', authenticate, initiateCall);
 router.post('/:callId/answer', authenticate, answerCall);
 router.post('/:callId/reject', authenticate, rejectCall);
 router.post('/:callId/end', authenticate, endCall);
+router.post('/:callId/fail', authenticate, markCallAsFailed);
 
 // WebRTC specific routes
 router.get('/ice-servers', authenticate, getIceServers);

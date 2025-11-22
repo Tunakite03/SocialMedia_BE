@@ -123,6 +123,14 @@ const handleDisconnection = async (socket) => {
    const user = socket.user;
 
    if (userId) {
+      // Handle call disconnection first
+      try {
+         const { handleUserDisconnectFromCall } = require('../controllers/callController');
+         await handleUserDisconnectFromCall(userId);
+      } catch (error) {
+         console.error('Error handling call disconnect:', error);
+      }
+
       // Remove user from connected users
       connectedUsers.delete(userId);
       userSockets.delete(userId);
@@ -835,10 +843,10 @@ const handleWebRTC = (socket, io) => {
             },
          });
 
-         if (activeCall) {
-            socket.emit('call:error', { error: 'There is already an active call in this conversation' });
-            return;
-         }
+         // if (activeCall) {
+         //    socket.emit('call:error', { error: 'There is already an active call in this conversation' });
+         //    return;
+         // }
 
          // Create call
          const call = await prisma.call.create({
@@ -908,39 +916,30 @@ const handleWebRTC = (socket, io) => {
 
          console.log(`[DEBUG] Created call via WebSocket with ID: ${call.id}`);
 
-         // Send call initiated event to initiator with the custom call ID
-         socket.emit('call:initiated', {
+         const basePayload = {
+            callId: finalCustomCallId,
+            caller: call.initiator,
+            type: call.type.toLowerCase() === 'video' ? 'video' : 'audio',
             call: {
                ...call,
-               id: finalCustomCallId, // Return custom call ID if provided
+               id: finalCustomCallId,
                iceServers: webrtcService.getIceServers(),
             },
             participants: callParticipants,
-         });
+         };
+
+         // Send call initiated event to initiator with the custom call ID
+         socket.emit('call:initiated', basePayload);
 
          // Notify all participants except initiator
          conversation.participants.forEach((participant) => {
             if (participant.userId !== initiatorId) {
-               io.to(`user_${participant.userId}`).emit('call:incoming', {
-                  call: {
-                     ...call,
-                     id: finalCustomCallId, // Use custom call ID for consistency
-                     iceServers: webrtcService.getIceServers(),
-                  },
-                  participants: callParticipants,
-               });
+               io.to(`user_${participant.userId}`).emit('call:incoming', basePayload);
             }
          });
 
          // Update conversation room
-         io.to(`conversation_${conversation.id}`).emit('call:initiated', {
-            call: {
-               ...call,
-               id: finalCustomCallId, // Use custom call ID for consistency
-               iceServers: webrtcService.getIceServers(),
-            },
-            participants: callParticipants,
-         });
+         io.to(`conversation_${conversation.id}`).emit('call:initiated', basePayload);
       } catch (error) {
          console.error('Error initiating call via WebSocket:', error);
          socket.emit('call:error', { error: error.message });
@@ -952,6 +951,143 @@ const handleWebRTC = (socket, io) => {
    socket.on('call:start', callInitiateHandler);
    socket.on('webrtc:initiate', callInitiateHandler);
    socket.on('call:create', callInitiateHandler);
+
+   // Handle call response (accept/reject)
+   socket.on('call:response', async (data) => {
+      try {
+         const { callId, accepted } = data;
+         const userId = socket.userId;
+         const realCallId = resolveCallId(callId);
+
+         console.log(`[DEBUG] Call response - CallID: ${callId}, Accepted: ${accepted}, User: ${userId}`);
+
+         // Find the call and verify user is participant
+         const call = await prisma.call.findFirst({
+            where: {
+               id: realCallId,
+               status: 'RINGING',
+               participants: {
+                  some: { userId },
+               },
+            },
+            include: {
+               conversation: { select: { id: true } },
+               participants: {
+                  include: {
+                     user: {
+                        select: {
+                           id: true,
+                           username: true,
+                           displayName: true,
+                           avatar: true,
+                        },
+                     },
+                  },
+               },
+            },
+         });
+
+         if (!call) {
+            socket.emit('call:error', { error: 'Call not found or cannot be answered' });
+            return;
+         }
+
+         if (accepted) {
+            // Accept the call
+            // Update call status to ongoing
+            const updatedCall = await prisma.call.update({
+               where: { id: realCallId },
+               data: {
+                  status: 'ONGOING',
+                  startedAt: new Date(),
+               },
+            });
+
+            // Update participant status to joined
+            await prisma.callParticipant.update({
+               where: {
+                  callId_userId: {
+                     callId: realCallId,
+                     userId,
+                  },
+               },
+               data: {
+                  status: 'JOINED',
+                  joinedAt: new Date(),
+               },
+            });
+
+            // Emit call accepted event to all participants
+            io.to(`conversation_${call.conversation.id}`).emit('call:accepted', {
+               callId,
+               acceptedBy: userId,
+               call: updatedCall,
+            });
+
+            console.log(`Call ${realCallId} accepted by user ${userId}`);
+         } else {
+            // Reject the call
+            // Update participant status to rejected
+            await prisma.callParticipant.update({
+               where: {
+                  callId_userId: {
+                     callId: realCallId,
+                     userId,
+                  },
+               },
+               data: {
+                  status: 'REJECTED',
+                  leftAt: new Date(),
+               },
+            });
+
+            // Check if all participants rejected (except initiator)
+            const remainingParticipants = await prisma.callParticipant.count({
+               where: {
+                  callId: realCallId,
+                  status: {
+                     in: ['INVITED', 'JOINED'],
+                  },
+               },
+            });
+
+            let updatedCall = call;
+            if (remainingParticipants <= 1) {
+               // End call if no one else is available
+               updatedCall = await prisma.call.update({
+                  where: { id: realCallId },
+                  data: {
+                     status: 'ENDED',
+                     endedAt: new Date(),
+                  },
+               });
+            }
+
+            // Emit call rejected event to all participants
+            io.to(`conversation_${call.conversation.id}`).emit('call:rejected', {
+               callId,
+               rejectedBy: userId,
+               call: updatedCall,
+            });
+
+            // Also emit to all participants' personal rooms
+            if (updatedCall.participants) {
+               updatedCall.participants.forEach((participant) => {
+                  io.to(`user_${participant.userId}`).emit('call:rejected', {
+                     callId,
+                     rejectedBy: userId,
+                     call: updatedCall,
+                  });
+               });
+            }
+
+            console.log(`Call ${realCallId} rejected by user ${userId}`);
+         }
+      } catch (error) {
+         console.error('Error handling call response:', error);
+         socket.emit('call:error', { error: error.message });
+      }
+   });
 
    // Join call room for WebRTC signaling
    socket.on('call:join_room', async (data) => {
@@ -1017,41 +1153,42 @@ const handleWebRTC = (socket, io) => {
       }
    });
 
-   // WebRTC Offer
-   socket.on('webrtc:offer', async (data) => {
+   /**
+    * WebRTC Offer bridge
+    * - Nhận từ FE: 'call:offer' hoặc 'webrtc:offer'
+    * - Forward cho peer: 'call:offer' (FE WebRTCService đang listen)
+    */
+   const webRTCOfferHandler = async (data) => {
       try {
-         const { callId, targetUserId, offer } = data;
+         const { callId, offer } = data;
          const userId = socket.userId;
-         let realCallId = resolveCallId(callId);
+         const realCallId = resolveCallId(callId);
+         const targetUserId = data.targetUserId || data.to; // FE gửi 'to'
 
-         // If call doesn't exist, try to create it automatically
+         // If call doesn't exist, ask FE to init call before signaling
          if (!realCallId || !(await prisma.call.findUnique({ where: { id: realCallId } }))) {
-            console.log(`[DEBUG] Call ${callId} not found, attempting auto-creation`);
-            // This is a fallback - ideally the call should be created via call:initiate first
-            // But for now, we'll try to handle it
+            console.log(`[DEBUG] Call ${callId} not found, please initiate call first`);
             socket.emit('webrtc:error', { error: 'Call session not found. Please initiate call first.' });
             return;
          }
 
-         // Process signaling event
+         // Process signaling event in service
          await webrtcService.processSignalingEvent(realCallId, userId, 'offer', {
             offer,
             targetUserId,
          });
 
-         // Forward offer to target user
+         // Forward offer to target user (hoặc broadcast trong room)
          if (targetUserId) {
-            socket.to(`call_${realCallId}`).emit('webrtc:offer', {
+            io.to(`user_${targetUserId}`).emit('call:offer', {
                callId,
-               fromUserId: userId,
-               targetUserId,
+               from: userId,
                offer,
             });
          } else {
-            // Broadcast to all participants
-            socket.to(`call_${realCallId}`).emit('webrtc:offer', {
+            socket.to(`call_${realCallId}`).emit('call:offer', {
                callId,
-               fromUserId: userId,
+               from: userId,
                offer,
             });
          }
@@ -1061,34 +1198,36 @@ const handleWebRTC = (socket, io) => {
          console.error('Error handling WebRTC offer:', error);
          socket.emit('webrtc:error', { error: error.message });
       }
-   });
+   };
 
-   // WebRTC Answer
-   socket.on('webrtc:answer', async (data) => {
+   socket.on('webrtc:offer', webRTCOfferHandler);
+   socket.on('call:offer', webRTCOfferHandler);
+
+   /**
+    * WebRTC Answer bridge
+    */
+   const webRTCAnswerHandler = async (data) => {
       try {
-         const { callId, targetUserId, answer } = data;
+         const { callId, answer } = data;
          const userId = socket.userId;
          const realCallId = resolveCallId(callId);
+         const targetUserId = data.targetUserId || data.to;
 
-         // Process signaling event
          await webrtcService.processSignalingEvent(realCallId, userId, 'answer', {
             answer,
             targetUserId,
          });
 
-         // Forward answer to target user
          if (targetUserId) {
-            socket.to(`call_${realCallId}`).emit('webrtc:answer', {
+            io.to(`user_${targetUserId}`).emit('call:answer', {
                callId,
-               fromUserId: userId,
-               targetUserId,
+               from: userId,
                answer,
             });
          } else {
-            // Broadcast to all participants
-            socket.to(`call_${realCallId}`).emit('webrtc:answer', {
+            socket.to(`call_${realCallId}`).emit('call:answer', {
                callId,
-               fromUserId: userId,
+               from: userId,
                answer,
             });
          }
@@ -1098,33 +1237,36 @@ const handleWebRTC = (socket, io) => {
          console.error('Error handling WebRTC answer:', error);
          socket.emit('webrtc:error', { error: error.message });
       }
-   });
+   };
 
-   // ICE Candidate
-   socket.on('webrtc:ice-candidate', async (data) => {
+   socket.on('webrtc:answer', webRTCAnswerHandler);
+   socket.on('call:answer', webRTCAnswerHandler);
+
+   /**
+    * ICE Candidate bridge
+    */
+   const webRTCIceHandler = async (data) => {
       try {
-         const { callId, targetUserId, candidate } = data;
+         const { callId, candidate } = data;
          const userId = socket.userId;
          const realCallId = resolveCallId(callId);
+         const targetUserId = data.targetUserId || data.to;
 
-         // Process signaling event
          await webrtcService.processSignalingEvent(realCallId, userId, 'ice-candidate', {
             candidate,
             targetUserId,
          });
 
-         // Forward ICE candidate to target user or broadcast
          if (targetUserId) {
-            socket.to(`call_${realCallId}`).emit('webrtc:ice-candidate', {
+            io.to(`user_${targetUserId}`).emit('call:ice-candidate', {
                callId,
-               fromUserId: userId,
-               targetUserId,
+               from: userId,
                candidate,
             });
          } else {
-            socket.to(`call_${realCallId}`).emit('webrtc:ice-candidate', {
+            socket.to(`call_${realCallId}`).emit('call:ice-candidate', {
                callId,
-               fromUserId: userId,
+               from: userId,
                candidate,
             });
          }
@@ -1134,7 +1276,10 @@ const handleWebRTC = (socket, io) => {
          console.error('Error handling ICE candidate:', error);
          socket.emit('webrtc:error', { error: error.message });
       }
-   });
+   };
+
+   socket.on('webrtc:ice-candidate', webRTCIceHandler);
+   socket.on('call:ice-candidate', webRTCIceHandler);
 
    // Connection state change
    socket.on('webrtc:connection-state', async (data) => {
@@ -1234,28 +1379,100 @@ const handleWebRTC = (socket, io) => {
       }
    });
 
+   // Handle call end (alternative event name)
+   socket.on('call:end', async (data) => {
+      try {
+         const { callId } = data;
+         const userId = socket.userId;
+         const realCallId = resolveCallId(callId);
+
+         console.log(`[DEBUG] Call end - CallID: ${callId}, User: ${userId}`);
+
+         // Find call and verify user is participant
+         const call = await prisma.call.findFirst({
+            where: {
+               id: realCallId,
+               status: {
+                  in: ['RINGING', 'ONGOING'],
+               },
+               participants: {
+                  some: { userId },
+               },
+            },
+            include: {
+               conversation: { select: { id: true } },
+               participants: true,
+            },
+         });
+
+         if (!call) {
+            socket.emit('call:error', { error: 'Call not found or already ended' });
+            return;
+         }
+
+         // Update call status to ended
+         const updatedCall = await prisma.call.update({
+            where: { id: realCallId },
+            data: {
+               status: 'ENDED',
+               endedAt: new Date(),
+            },
+         });
+
+         // Update all participants status to left
+         await prisma.callParticipant.updateMany({
+            where: {
+               callId: realCallId,
+               status: {
+                  in: ['INVITED', 'JOINED'],
+               },
+            },
+            data: {
+               status: 'LEFT',
+               leftAt: new Date(),
+            },
+         });
+
+         // Emit to conversation for real-time updates
+         const payload = {
+            callId,
+            endedBy: userId,
+            call: updatedCall,
+         };
+
+         io.to(`conversation_${call.conversation.id}`).emit('call:ended', payload);
+
+         // Also emit to all participants' personal rooms to ensure they get the event
+         // (especially important if they haven't joined the conversation room yet)
+         if (updatedCall.participants) {
+            updatedCall.participants.forEach((participant) => {
+               io.to(`user_${participant.userId}`).emit('call:ended', payload);
+            });
+         }
+
+         console.log(`Call ${realCallId} ended by user ${userId}`);
+      } catch (error) {
+         console.error('Error ending call:', error);
+         socket.emit('call:error', { error: error.message });
+      }
+   });
+
    // Handle automatic cleanup on socket disconnect
    socket.on('disconnect', async () => {
       try {
          const userId = socket.userId;
-         const userCall = webrtcService.getUserCall(userId);
+         console.log(`[DISCONNECT] User ${userId} disconnected, checking for active calls`);
 
-         if (userCall) {
-            await webrtcService.leaveCallRoom(userCall.id, userId);
+         // Handle call disconnection
+         const { handleUserDisconnectFromCall } = require('../controllers/callController');
+         await handleUserDisconnectFromCall(userId);
 
-            // Notify others in the call
-            socket.to(`call_${userCall.id}`).emit('call:user_left', {
-               userId,
-               leftAt: new Date(),
-               reason: 'disconnected',
-            });
-         }
+         console.log(`[DISCONNECT] Call cleanup completed for user ${userId}`);
       } catch (error) {
          console.error('Error handling WebRTC disconnect cleanup:', error);
       }
    });
 };
-
 /**
  * Get connected user by ID
  */
