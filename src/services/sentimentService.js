@@ -50,10 +50,18 @@ class SentimentService {
                }
             );
 
+            // Normalize sentiment to uppercase to match SentimentType enum (POSITIVE, NEUTRAL, NEGATIVE)
+            const sentiment = response.data.sentiment.toUpperCase();
+            const scores = {
+               POSITIVE: response.data.scores.positive,
+               NEUTRAL: response.data.scores.neutral,
+               NEGATIVE: response.data.scores.negative,
+            };
+
             const result = {
-               sentiment: response.data.sentiment,
+               sentiment: sentiment,
                confidence: response.data.confidence,
-               scores: response.data.scores,
+               scores: scores,
                processingTime: response.data.processing_time,
             };
 
@@ -116,10 +124,15 @@ class SentimentService {
                }
             );
 
+            // Normalize results to match SentimentType enum
             return response.data.results.map((result) => ({
-               sentiment: result.sentiment,
+               sentiment: result.sentiment.toUpperCase(),
                confidence: result.confidence,
-               scores: result.scores,
+               scores: {
+                  POSITIVE: result.scores.positive,
+                  NEUTRAL: result.scores.neutral,
+                  NEGATIVE: result.scores.negative,
+               },
                processingTime: result.processing_time,
             }));
          } catch (error) {

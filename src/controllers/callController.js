@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const { successResponse } = require('../utils/responseFormatter');
 const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
 const webrtcService = require('../services/webrtcService');
+const { createCallHistoryMessage } = require('./messageController');
 
 // Global call ID mapping (same as in socketUtils)
 const callIdMapping = global.callIdMapping || (global.callIdMapping = new Map());
@@ -278,12 +279,37 @@ const endCall = async (req, res, next) => {
          },
          include: {
             conversation: { select: { id: true } },
-            participants: true,
+            participants: {
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                        avatar: true,
+                     },
+                  },
+               },
+            },
+            initiator: {
+               select: {
+                  id: true,
+                  username: true,
+                  displayName: true,
+                  avatar: true,
+               },
+            },
          },
       });
 
       if (!call) {
          throw new NotFoundError('Call not found or already ended');
+      }
+
+      // Calculate duration if call was ongoing
+      let duration = null;
+      if (call.status === 'ONGOING' && call.startedAt) {
+         duration = Math.floor((new Date() - new Date(call.startedAt)) / 1000);
       }
 
       // Update call status to ended
@@ -292,6 +318,7 @@ const endCall = async (req, res, next) => {
          data: {
             status: 'ENDED',
             endedAt: new Date(),
+            duration: duration,
          },
       });
 
@@ -307,6 +334,19 @@ const endCall = async (req, res, next) => {
             status: 'LEFT',
             leftAt: new Date(),
          },
+      });
+
+      // Create call history message in conversation
+      await createCallHistoryMessage({
+         id: call.id,
+         conversationId: call.conversation.id,
+         type: call.type,
+         status: 'ENDED',
+         duration: duration,
+         startedAt: call.startedAt,
+         endedAt: new Date(),
+         initiator: call.initiator,
+         participants: call.participants,
       });
 
       // Emit to socket for real-time updates
@@ -350,6 +390,26 @@ const rejectCall = async (req, res, next) => {
          },
          include: {
             conversation: { select: { id: true } },
+            participants: {
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                        avatar: true,
+                     },
+                  },
+               },
+            },
+            initiator: {
+               select: {
+                  id: true,
+                  username: true,
+                  displayName: true,
+                  avatar: true,
+               },
+            },
          },
       });
 
@@ -382,6 +442,8 @@ const rejectCall = async (req, res, next) => {
       });
 
       let updatedCall = call;
+      let shouldCreateHistory = false;
+      
       if (remainingParticipants <= 1) {
          // End call if no one else is available
          updatedCall = await prisma.call.update({
@@ -390,6 +452,22 @@ const rejectCall = async (req, res, next) => {
                status: 'ENDED',
                endedAt: new Date(),
             },
+         });
+         shouldCreateHistory = true;
+      }
+
+      // Create call history message when call is rejected by all
+      if (shouldCreateHistory) {
+         await createCallHistoryMessage({
+            id: call.id,
+            conversationId: call.conversation.id,
+            type: call.type,
+            status: 'REJECTED',
+            duration: 0,
+            startedAt: null,
+            endedAt: new Date(),
+            initiator: call.initiator,
+            participants: call.participants,
          });
       }
 
@@ -781,8 +859,27 @@ const handleUserDisconnectFromCall = async (userId) => {
             },
          },
          include: {
-            participants: true,
+            participants: {
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                        avatar: true,
+                     },
+                  },
+               },
+            },
             conversation: { select: { id: true } },
+            initiator: {
+               select: {
+                  id: true,
+                  username: true,
+                  displayName: true,
+                  avatar: true,
+               },
+            },
          },
       });
 
@@ -809,14 +906,35 @@ const handleUserDisconnectFromCall = async (userId) => {
             },
          });
 
-         // If no one left, end the call
+         // If no one left, end the call and create history message
          if (remainingActiveParticipants === 0) {
+            const finalStatus = call.status === 'RINGING' ? 'MISSED' : 'ENDED';
+            let duration = null;
+            
+            if (call.status === 'ONGOING' && call.startedAt) {
+               duration = Math.floor((new Date() - new Date(call.startedAt)) / 1000);
+            }
+
             await prisma.call.update({
                where: { id: call.id },
                data: {
-                  status: call.status === 'RINGING' ? 'MISSED' : 'ENDED',
+                  status: finalStatus,
                   endedAt: new Date(),
+                  duration: duration,
                },
+            });
+
+            // Create call history message
+            await createCallHistoryMessage({
+               id: call.id,
+               conversationId: call.conversation.id,
+               type: call.type,
+               status: finalStatus,
+               duration: duration || 0,
+               startedAt: call.startedAt,
+               endedAt: new Date(),
+               initiator: call.initiator,
+               participants: call.participants,
             });
 
             console.log(`[DISCONNECT] Call ${call.id} ended due to all participants leaving`);
@@ -862,6 +980,26 @@ const markCallAsFailed = async (req, res, next) => {
          },
          include: {
             conversation: { select: { id: true } },
+            participants: {
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                        avatar: true,
+                     },
+                  },
+               },
+            },
+            initiator: {
+               select: {
+                  id: true,
+                  username: true,
+                  displayName: true,
+                  avatar: true,
+               },
+            },
          },
       });
 
@@ -894,6 +1032,19 @@ const markCallAsFailed = async (req, res, next) => {
             status: 'FAILED',
             leftAt: new Date(),
          },
+      });
+
+      // Create call history message for failed call
+      await createCallHistoryMessage({
+         id: call.id,
+         conversationId: call.conversation.id,
+         type: call.type,
+         status: 'FAILED',
+         duration: 0,
+         startedAt: call.startedAt,
+         endedAt: new Date(),
+         initiator: call.initiator,
+         participants: call.participants,
       });
 
       // Log call failure

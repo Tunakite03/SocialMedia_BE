@@ -8,9 +8,10 @@ A comprehensive social media platform backend built with Node.js, Express, Postg
 -  **Real-time Communication**: Socket.IO for real-time messaging, notifications, and status updates
 -  **Social Features**: Posts, comments, reactions, and social interactions
 -  **WebRTC Integration**: Voice and video calling capabilities
--  **AI-Powered Sentiment Analysis**: Python FastAPI service for analyzing text sentiment
+-  **AI-Powered Sentiment Analysis**: Python Flask service using Vietnamese sentiment model for analyzing text sentiment
 -  **Database**: PostgreSQL with Prisma ORM for robust data management
 -  **Real-time Features**: Live notifications, typing indicators, online status
+-  **Media Upload**: Cloudinary integration for image/video storage
 
 ## 🏗️ Architecture
 
@@ -19,8 +20,9 @@ The backend follows a microservices-inspired architecture:
 -  **Node.js (Express)**: Main API server handling business logic, authentication, and data management
 -  **PostgreSQL**: Primary database for storing all application data
 -  **Socket.IO**: Real-time communication layer for instant messaging and notifications
--  **FastAPI (Python)**: Dedicated sentiment analysis service
+-  **Flask (Python)**: Dedicated sentiment analysis service using `tunakite03/sentiment-vi-social-vi` model
 -  **WebRTC**: Peer-to-peer communication for voice/video calls
+-  **Cloudinary**: Media storage and CDN for user-uploaded content
 
 ## 📋 Prerequisites
 
@@ -81,13 +83,23 @@ npm run db:seed
 
 ### 5. Set up the Sentiment Analysis Service
 
+**Option A: Using Docker Compose (Recommended)**
+
+```bash
+docker-compose up -d sentiment-service
+```
+
+**Option B: Run Standalone**
+
 ```bash
 cd sentiment-service
-chmod +x start.sh
-./start.sh
+pip install -r requirements.txt
+python api_service.py
 ```
 
 The sentiment service will be available at `http://localhost:8000`
+
+📖 **See [SETUP_SENTIMENT.md](SETUP_SENTIMENT.md) for detailed setup guide**
 
 ### 6. Start the main server
 
@@ -242,14 +254,33 @@ Authorization: Bearer <your-jwt-token>
 ### Using Docker Compose
 
 ```bash
-# Build and start all services
+# Build and start all services (Backend + Database + Sentiment Service)
 docker-compose up -d
+
+# Start only specific services
+docker-compose up -d app postgres sentiment-service
 
 # View logs
 docker-compose logs -f
 
+# View logs for specific service
+docker-compose logs -f sentiment-service
+
 # Stop services
 docker-compose down
+```
+
+### NPM Scripts for Sentiment Service
+
+```bash
+# Start sentiment service with Docker
+npm run sentiment:docker
+
+# View sentiment service logs
+npm run sentiment:logs
+
+# Test sentiment service
+npm run sentiment:test
 ```
 
 ### Manual Docker Setup
@@ -268,12 +299,23 @@ docker run -p 8000:8000 otakomi-sentiment
 
 ## 🧪 Testing
 
+### Backend Tests
+
 ```bash
 # Run tests
 npm test
 
 # Run tests with coverage
 npm run test:coverage
+```
+
+### Sentiment Service Tests
+
+```bash
+# Test sentiment service endpoints
+npm run sentiment:test
+
+# Or using curl/PowerShell (see SETUP_SENTIMENT.md)
 ```
 
 ## 📊 Database Schema

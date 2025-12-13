@@ -1,7 +1,106 @@
 const prisma = require('../config/database');
+const sentimentService = require('../services/sentimentService');
 const { successResponse, paginatedResponse } = require('../utils/responseFormatter');
 const { validatePaginationParams, createPaginationConfig, processPaginatedResults } = require('../utils/pagination');
 const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
+
+/**
+ * Create a system message for call history
+ */
+const createCallHistoryMessage = async (callData) => {
+   try {
+      const { id: callId, conversationId, type, status, duration, startedAt, endedAt, initiator, participants } = callData;
+      
+      // Calculate call duration in seconds if not provided
+      let callDuration = duration;
+      if (!callDuration && startedAt && endedAt) {
+         callDuration = Math.floor((new Date(endedAt) - new Date(startedAt)) / 1000);
+      }
+
+      // Format call status message
+      let callMessage = '';
+      const callType = type?.toLowerCase() === 'video' ? 'Video call' : 'Voice call';
+      
+      switch (status) {
+         case 'ENDED':
+            if (callDuration && callDuration > 0) {
+               const minutes = Math.floor(callDuration / 60);
+               const seconds = callDuration % 60;
+               const durationStr = minutes > 0 
+                  ? `${minutes}m ${seconds}s`
+                  : `${seconds}s`;
+               callMessage = `${callType} ended • Duration: ${durationStr}`;
+            } else {
+               callMessage = `${callType} ended`;
+            }
+            break;
+         case 'MISSED':
+            callMessage = `Missed ${callType.toLowerCase()}`;
+            break;
+         case 'REJECTED':
+            callMessage = `${callType} rejected`;
+            break;
+         case 'FAILED':
+            callMessage = `${callType} failed to connect`;
+            break;
+         default:
+            callMessage = `${callType}`;
+      }
+
+      // Create the system message
+      const message = await prisma.message.create({
+         data: {
+            content: callMessage,
+            type: 'CALL',
+            conversationId,
+            senderId: initiator.id, // Use initiator as sender for call history
+            metadata: {
+               callId,
+               callType: type,
+               callStatus: status,
+               callDuration: callDuration || 0,
+               participants: participants.map(p => ({
+                  id: p.userId,
+                  status: p.status,
+                  joinedAt: p.joinedAt,
+                  leftAt: p.leftAt
+               }))
+            }
+         },
+         include: {
+            sender: {
+               select: {
+                  id: true,
+                  username: true,
+                  displayName: true,
+                  avatar: true,
+               },
+            },
+         },
+      });
+
+      // Update conversation's updatedAt
+      await prisma.conversation.update({
+         where: { id: conversationId },
+         data: { updatedAt: new Date() },
+      });
+
+      // Emit to socket for real-time updates
+      const io = global.io || global.socketio;
+      if (io) {
+         io.to(`conversation_${conversationId}`).emit('message:new', {
+            ...message,
+            isCallHistory: true
+         });
+      }
+
+      return message;
+   } catch (error) {
+      console.error('Create call history message error:', error);
+      // Don't throw error to avoid breaking call flow
+      return null;
+   }
+};
 
 /**
  * Get or create direct conversation between two users
@@ -375,6 +474,8 @@ const getConversations = async (req, res, next) => {
                        ...messages[0],
                        isReadByCurrentUser: messages[0].readReceipts.some((receipt) => receipt.userId === userId),
                        readCount: messages[0].readReceipts.length,
+                       isCallHistory: messages[0].type === 'CALL',
+                       callData: messages[0].type === 'CALL' ? messages[0].metadata : null,
                     }
                   : null;
 
@@ -446,14 +547,32 @@ const sendMessage = async (req, res, next) => {
          }
       }
 
+      // Analyze sentiment for text messages
+      let sentimentResult = null;
+      try {
+         sentimentResult = await sentimentService.analyzeSentiment(content.trim(), senderId, null, 'message');
+      } catch (sentimentError) {
+         console.error('Error analyzing message sentiment:', sentimentError);
+         // Continue without sentiment if analysis fails
+      }
+
+      // Prepare message data
+      const messageData = {
+         content: content.trim(),
+         conversationId,
+         senderId,
+         parentId: replyToId || null,
+      };
+
+      if (sentimentResult) {
+         messageData.sentiment = sentimentResult.sentiment;
+         messageData.sentimentConfidence = sentimentResult.confidence;
+         messageData.sentimentScores = sentimentResult.scores;
+      }
+
       // Create message
       const message = await prisma.message.create({
-         data: {
-            content: content.trim(),
-            conversationId,
-            senderId,
-            parentId: replyToId || null,
-         },
+         data: messageData,
          include: {
             sender: {
                select: {
@@ -490,6 +609,13 @@ const sendMessage = async (req, res, next) => {
             },
          },
       });
+
+      // Update stored sentiment analysis with actual message ID (async, don't wait)
+      if (sentimentResult) {
+         sentimentService.analyzeSentiment(content.trim(), senderId, message.id, 'message').catch((error) => {
+            console.error('Error updating message sentiment with entity ID:', error);
+         });
+      }
 
       // Update conversation's updatedAt
       await prisma.conversation.update({
@@ -626,6 +752,10 @@ const getMessages = async (req, res, next) => {
             isReadByCurrentUser,
             readBy,
             readCount: message.readReceipts.length,
+            // Add flag to identify call history messages
+            isCallHistory: message.type === 'CALL',
+            // Include call metadata for frontend display
+            callData: message.type === 'CALL' ? message.metadata : null,
          };
       });
 
@@ -1040,15 +1170,13 @@ const uploadAttachment = async (req, res, next) => {
       }
 
       // Map file type to MessageType enum
-      let messageType = 'TEXT'; // default
+      let messageType = 'FILE'; // default for unknown files
       if (req.file.mimetype.startsWith('image/')) {
          messageType = 'IMAGE';
       } else if (req.file.mimetype.startsWith('video/')) {
          messageType = 'VIDEO';
       } else if (req.file.mimetype.startsWith('audio/')) {
          messageType = 'VOICE';
-      } else {
-         messageType = 'FILE';
       }
 
       // Create attachment
@@ -1080,4 +1208,5 @@ module.exports = {
    markConversationAsRead,
    getUnreadMessagesCount,
    getAllUnreadCounts,
+   createCallHistoryMessage,
 };

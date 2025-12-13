@@ -61,6 +61,22 @@ const createPost = async (req, res, next) => {
          postData.mediaUrl = mediaUrl;
       }
 
+      // Analyze sentiment if there's text content
+      let sentimentResult = null;
+      if (content && content.trim()) {
+         try {
+            sentimentResult = await sentimentService.analyzeSentiment(content, userId, null, 'post');
+            if (sentimentResult) {
+               postData.sentiment = sentimentResult.sentiment;
+               postData.sentimentConfidence = sentimentResult.confidence;
+               postData.sentimentScores = sentimentResult.scores;
+            }
+         } catch (sentimentError) {
+            console.error('Error analyzing post sentiment:', sentimentError);
+            // Continue without sentiment if analysis fails
+         }
+      }
+
       // Create post
       const post = await prisma.post.create({
          data: postData,
@@ -82,10 +98,10 @@ const createPost = async (req, res, next) => {
          },
       });
 
-      // Analyze sentiment asynchronously (don't wait for it) - only if there's text content
-      if (content && content.trim()) {
+      // Update stored sentiment analysis with actual post ID (async, don't wait)
+      if (sentimentResult && content && content.trim()) {
          sentimentService.analyzeSentiment(content, userId, post.id, 'post').catch((error) => {
-            console.error('Error analyzing post sentiment:', error);
+            console.error('Error updating post sentiment with entity ID:', error);
          });
       }
 

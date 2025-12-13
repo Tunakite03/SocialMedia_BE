@@ -7,7 +7,7 @@ const logger = require('../utils/logger');
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 5242880; // 5MB
 
-// Configure Cloudinary Storage
+// Configure Cloudinary Storage for posts
 const storage = new CloudinaryStorage({
    cloudinary,
    params: {
@@ -15,6 +15,18 @@ const storage = new CloudinaryStorage({
       resource_type: 'auto',
       quality: 'auto',
       fetch_format: 'auto',
+   },
+});
+
+// Configure Cloudinary Storage for avatars
+const avatarStorage = new CloudinaryStorage({
+   cloudinary,
+   params: {
+      folder: 'onway/avatars',
+      resource_type: 'auto',
+      quality: 'auto',
+      fetch_format: 'auto',
+      transformation: [{ width: 200, height: 200, crop: 'fill', gravity: 'face' }],
    },
 });
 
@@ -28,9 +40,18 @@ const fileFilter = (req, file, cb) => {
    cb(null, true);
 };
 
-// Configure multer
+// Configure multer for posts
 const uploadMiddleware = multer({
    storage: storage,
+   limits: {
+      fileSize: MAX_FILE_SIZE,
+   },
+   fileFilter: fileFilter,
+});
+
+// Configure multer for avatars
+const avatarUploadMiddleware = multer({
+   storage: avatarStorage,
    limits: {
       fileSize: MAX_FILE_SIZE,
    },
@@ -72,5 +93,6 @@ const handleUploadError = (error, req, res, next) => {
 
 module.exports = {
    uploadMiddleware,
+   avatarUploadMiddleware,
    handleUploadError,
 };

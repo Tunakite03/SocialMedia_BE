@@ -42,14 +42,32 @@ const createComment = async (req, res, next) => {
          }
       }
 
+      // Analyze sentiment before creating comment
+      let sentimentResult = null;
+      try {
+         sentimentResult = await sentimentService.analyzeSentiment(content, userId, null, 'comment');
+      } catch (sentimentError) {
+         console.error('Error analyzing comment sentiment:', sentimentError);
+         // Continue without sentiment if analysis fails
+      }
+
+      // Create comment with sentiment data
+      const commentData = {
+         content,
+         postId,
+         authorId: userId,
+         parentId,
+      };
+
+      if (sentimentResult) {
+         commentData.sentiment = sentimentResult.sentiment;
+         commentData.sentimentConfidence = sentimentResult.confidence;
+         commentData.sentimentScores = sentimentResult.scores;
+      }
+
       // Create comment
       const comment = await prisma.comment.create({
-         data: {
-            content,
-            postId,
-            authorId: userId,
-            parentId,
-         },
+         data: commentData,
          include: {
             author: {
                select: {
@@ -68,10 +86,12 @@ const createComment = async (req, res, next) => {
          },
       });
 
-      // Analyze sentiment asynchronously
-      sentimentService.analyzeSentiment(content, userId, comment.id, 'comment').catch((error) => {
-         console.error('Error analyzing comment sentiment:', error);
-      });
+      // Update stored sentiment analysis with actual comment ID (async, don't wait)
+      if (sentimentResult) {
+         sentimentService.analyzeSentiment(content, userId, comment.id, 'comment').catch((error) => {
+            console.error('Error updating comment sentiment with entity ID:', error);
+         });
+      }
 
       // Create notification for post author (if not commenting on own post)
       if (post.authorId !== userId) {

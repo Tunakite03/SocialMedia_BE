@@ -4,6 +4,7 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 const { authenticate } = require('../middlewares/authMiddleware');
 const { validate, schemas } = require('../middlewares/validationMiddleware');
+const { uploadMiddleware, avatarUploadMiddleware } = require('../middlewares/uploadMiddleware');
 
 /**
  * @swagger
@@ -399,6 +400,59 @@ router.get('/profile', authenticate, authController.getProfile);
  *               $ref: '#/components/schemas/Error'
  */
 router.put('/profile', authenticate, validate(schemas.updateProfile), authController.updateProfile);
+
+/**
+ * @swagger
+ * /auth/avatar:
+ *   put:
+ *     tags:
+ *       - Authentication
+ *     summary: Update user avatar
+ *     description: Update the authenticated user's avatar image
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - avatar
+ *             properties:
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *                 description: Avatar image file (JPEG, PNG, GIF, WebP)
+ *     responses:
+ *       200:
+ *         description: Avatar updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/Success'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         user:
+ *                           $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Validation error or invalid file
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.put('/avatar', authenticate, avatarUploadMiddleware.single('avatar'), authController.updateAvatar);
 
 /**
  * @swagger

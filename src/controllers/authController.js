@@ -5,6 +5,7 @@ const prisma = require('../config/database');
 const { successResponse } = require('../utils/responseFormatter');
 const Logger = require('../utils/logger');
 const emailService = require('../services/mailService');
+const uploadService = require('../services/uploadService');
 const authUtils = require('../utils/auth');
 const { getRandomAvatarUrl, getClientIpAddress, parseUserAgent } = require('../utils/auth');
 const {
@@ -443,6 +444,68 @@ const updateProfile = async (req, res, next) => {
 };
 
 /**
+ * Update user avatar
+ */
+const updateAvatar = async (req, res, next) => {
+   try {
+      if (!req.file) {
+         throw new ValidationError('No avatar image provided');
+      }
+
+      // Get current user to check existing avatar
+      const currentUser = await prisma.user.findUnique({
+         where: { id: req.user.id },
+         select: { avatar: true },
+      });
+
+      // Delete old avatar from Cloudinary if it exists and is not the default random avatar
+      if (currentUser.avatar && !currentUser.avatar.includes('randomuser.me')) {
+         try {
+            // Extract public ID from Cloudinary URL
+            const publicId = currentUser.avatar.split('/').pop().split('.')[0];
+            await uploadService.deleteImage(publicId);
+            Logger.info('Old avatar deleted from Cloudinary', { userId: req.user.id, publicId });
+         } catch (deleteError) {
+            Logger.warn('Failed to delete old avatar from Cloudinary', {
+               userId: req.user.id,
+               error: deleteError.message,
+            });
+            // Don't fail the request if old avatar deletion fails
+         }
+      }
+
+      // Update user avatar
+      const updatedUser = await prisma.user.update({
+         where: { id: req.user.id },
+         data: {
+            avatar: req.file.path,
+         },
+         select: {
+            id: true,
+            email: true,
+            username: true,
+            displayName: true,
+            avatar: true,
+            bio: true,
+            dateOfBirth: true,
+            role: true,
+            isOnline: true,
+            lastSeen: true,
+            emailVerified: true,
+            createdAt: true,
+         },
+      });
+
+      Logger.logDatabase('UPDATE', 'user', { userId: req.user.id, action: 'avatar_update' });
+
+      return successResponse(res, { user: updatedUser }, 'Avatar updated successfully');
+   } catch (error) {
+      Logger.error('Update avatar error', error);
+      next(error);
+   }
+};
+
+/**
  * Change password
  */
 const changePassword = async (req, res, next) => {
@@ -600,6 +663,7 @@ module.exports = {
    revokeSession,
    getProfile,
    updateProfile,
+   updateAvatar,
    changePassword,
    verifyToken,
    forgotPassword,
