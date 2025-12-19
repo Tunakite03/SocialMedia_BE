@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/database');
+const webrtcService = require('../services/webrtcService');
 
 const connectedUsers = new Map(); // Store connected users
 const userSockets = new Map(); // Map userId to socketId
@@ -994,6 +995,10 @@ const handleWebRTC = (socket, io) => {
 
          if (accepted) {
             // Accept the call
+            // Clear acceptance timeout and set establishment timeout
+            webrtcService.clearAcceptanceTimeout(realCallId);
+            webrtcService.setEstablishmentTimeout(realCallId);
+
             // Update call status to ongoing
             const updatedCall = await prisma.call.update({
                where: { id: realCallId },
@@ -1061,6 +1066,9 @@ const handleWebRTC = (socket, io) => {
                      endedAt: new Date(),
                   },
                });
+
+               // Clear all timeouts when call ends
+               webrtcService.clearCallTimeouts(realCallId);
             }
 
             // Emit call rejected event to all participants
@@ -1218,6 +1226,10 @@ const handleWebRTC = (socket, io) => {
             targetUserId,
          });
 
+         // Clear establishment timeout when answer is received
+         // This indicates the WebRTC connection negotiation is completing
+         webrtcService.clearEstablishmentTimeout(realCallId);
+
          if (targetUserId) {
             io.to(`user_${targetUserId}`).emit('call:answer', {
                callId,
@@ -1293,6 +1305,12 @@ const handleWebRTC = (socket, io) => {
             connectionState,
             targetUserId,
          });
+
+         // Clear establishment timeout when connection is successfully established
+         if (connectionState === 'connected' || connectionState === 'stable') {
+            webrtcService.clearEstablishmentTimeout(realCallId);
+            console.log(`WebRTC connection established for call ${realCallId}, cleared establishment timeout`);
+         }
 
          // Notify others about connection state change
          socket.to(`call_${realCallId}`).emit('webrtc:connection-state', {
@@ -1432,6 +1450,9 @@ const handleWebRTC = (socket, io) => {
                leftAt: new Date(),
             },
          });
+
+         // Clear all timeouts for this call
+         webrtcService.clearCallTimeouts(realCallId);
 
          // Emit to conversation for real-time updates
          const payload = {

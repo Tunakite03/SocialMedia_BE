@@ -20,7 +20,7 @@
       "migrate:read-status:analyze": "node scripts/migrate-read-status.js --analyze",
       "migrate:read-status:validate": "node scripts/migrate-read-status.js --validate",
       "migrate:read-status:rollback": "node scripts/migrate-read-status.js --rollback",
-      "sentiment:start": "python api_service.py",
+      "sentiment": " py .\\api_service.py",
       "sentiment:test": "powershell -ExecutionPolicy Bypass -File ./scripts/test-sentiment-service.ps1",
       "sentiment:docker": "docker-compose up -d sentiment-service",
       "sentiment:logs": "docker-compose logs -f sentiment-service",

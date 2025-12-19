@@ -210,6 +210,10 @@ const answerCall = async (req, res, next) => {
          throw new NotFoundError('Call not found or cannot be answered');
       }
 
+      // Clear acceptance timeout and set establishment timeout
+      webrtcService.clearAcceptanceTimeout(callId);
+      webrtcService.setEstablishmentTimeout(callId);
+
       // Update call status to ongoing if first person to answer
       const updatedCall = await prisma.call.update({
          where: { id: callId },
@@ -336,6 +340,9 @@ const endCall = async (req, res, next) => {
          },
       });
 
+      // Clear all timeouts for this call
+      webrtcService.clearCallTimeouts(callId);
+
       // Create call history message in conversation
       await createCallHistoryMessage({
          id: call.id,
@@ -443,7 +450,7 @@ const rejectCall = async (req, res, next) => {
 
       let updatedCall = call;
       let shouldCreateHistory = false;
-      
+
       if (remainingParticipants <= 1) {
          // End call if no one else is available
          updatedCall = await prisma.call.update({
@@ -454,6 +461,9 @@ const rejectCall = async (req, res, next) => {
             },
          });
          shouldCreateHistory = true;
+
+         // Clear all timeouts when call is rejected by all
+         webrtcService.clearCallTimeouts(callId);
       }
 
       // Create call history message when call is rejected by all
@@ -910,7 +920,7 @@ const handleUserDisconnectFromCall = async (userId) => {
          if (remainingActiveParticipants === 0) {
             const finalStatus = call.status === 'RINGING' ? 'MISSED' : 'ENDED';
             let duration = null;
-            
+
             if (call.status === 'ONGOING' && call.startedAt) {
                duration = Math.floor((new Date() - new Date(call.startedAt)) / 1000);
             }
@@ -923,6 +933,9 @@ const handleUserDisconnectFromCall = async (userId) => {
                   duration: duration,
                },
             });
+
+            // Clear all timeouts when call ends
+            webrtcService.clearCallTimeouts(call.id);
 
             // Create call history message
             await createCallHistoryMessage({

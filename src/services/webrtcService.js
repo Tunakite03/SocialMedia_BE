@@ -9,6 +9,7 @@ class WebRTCService {
       this.activeCalls = new Map(); // callId -> call metadata
       this.userConnections = new Map(); // userId -> { callId, socketId, peerConnections }
       this.rtcConfiguration = this.getRTCConfiguration();
+      this.callTimeouts = new Map(); // callId -> { acceptanceTimeout, establishmentTimeout }
    }
 
    /**
@@ -76,6 +77,19 @@ class WebRTCService {
          });
 
          this.activeCalls.set(callId, callSession);
+
+         // Set up acceptance timeout (30 seconds)
+         const acceptanceTimeout = setTimeout(async () => {
+            try {
+               Logger.warn(`Call ${callId} timed out - no acceptance within 30 seconds`);
+               await this.handleCallTimeout(callId, 'acceptance');
+            } catch (error) {
+               Logger.error('Error handling call acceptance timeout:', error);
+            }
+         }, 30000);
+
+         // Store timeout reference
+         this.callTimeouts.set(callId, { acceptanceTimeout });
 
          // Update call in database with ICE servers config
          await prisma.call.update({
@@ -374,6 +388,9 @@ class WebRTCService {
             }
          }
 
+         // Clear all timeouts for this call
+         this.clearCallTimeouts(callId);
+
          Logger.info(`Call ${callId} ended. Duration: ${duration} seconds`);
          return { callId, duration, endedAt: new Date() };
       } catch (error) {
@@ -424,6 +441,180 @@ class WebRTCService {
          duration,
          status: callSession.status,
       };
+   }
+
+   /**
+    * Clear acceptance timeout when call is accepted
+    */
+   clearAcceptanceTimeout(callId) {
+      const timeouts = this.callTimeouts.get(callId);
+      if (timeouts?.acceptanceTimeout) {
+         clearTimeout(timeouts.acceptanceTimeout);
+         Logger.info(`Cleared acceptance timeout for call ${callId}`);
+         timeouts.acceptanceTimeout = null;
+      }
+   }
+
+   /**
+    * Set establishment timeout after call is accepted
+    * If offer/answer not completed within 30 seconds, cancel the call
+    */
+   setEstablishmentTimeout(callId) {
+      const timeouts = this.callTimeouts.get(callId);
+      if (!timeouts) {
+         Logger.warn(`No timeout tracking found for call ${callId}`);
+         return;
+      }
+
+      // Clear any existing establishment timeout
+      if (timeouts.establishmentTimeout) {
+         clearTimeout(timeouts.establishmentTimeout);
+      }
+
+      // Set new establishment timeout (30 seconds)
+      const establishmentTimeout = setTimeout(async () => {
+         try {
+            Logger.warn(`Call ${callId} timed out - WebRTC connection not established within 30 seconds`);
+            await this.handleCallTimeout(callId, 'establishment');
+         } catch (error) {
+            Logger.error('Error handling call establishment timeout:', error);
+         }
+      }, 30000);
+
+      timeouts.establishmentTimeout = establishmentTimeout;
+      Logger.info(`Set establishment timeout for call ${callId}`);
+   }
+
+   /**
+    * Clear establishment timeout when connection is established
+    */
+   clearEstablishmentTimeout(callId) {
+      const timeouts = this.callTimeouts.get(callId);
+      if (timeouts?.establishmentTimeout) {
+         clearTimeout(timeouts.establishmentTimeout);
+         Logger.info(`Cleared establishment timeout for call ${callId}`);
+         timeouts.establishmentTimeout = null;
+      }
+   }
+
+   /**
+    * Clear all timeouts for a call
+    */
+   clearCallTimeouts(callId) {
+      const timeouts = this.callTimeouts.get(callId);
+      if (timeouts) {
+         if (timeouts.acceptanceTimeout) {
+            clearTimeout(timeouts.acceptanceTimeout);
+         }
+         if (timeouts.establishmentTimeout) {
+            clearTimeout(timeouts.establishmentTimeout);
+         }
+         this.callTimeouts.delete(callId);
+         Logger.info(`Cleared all timeouts for call ${callId}`);
+      }
+   }
+
+   /**
+    * Handle call timeout (acceptance or establishment)
+    */
+   async handleCallTimeout(callId, timeoutType) {
+      try {
+         const callSession = this.activeCalls.get(callId);
+         if (!callSession) {
+            Logger.warn(`Call ${callId} already ended, skipping timeout handling`);
+            return;
+         }
+
+         // Get call from database
+         const call = await prisma.call.findUnique({
+            where: { id: callId },
+            include: {
+               conversation: { select: { id: true } },
+               participants: {
+                  include: {
+                     user: {
+                        select: {
+                           id: true,
+                           username: true,
+                           displayName: true,
+                           avatar: true,
+                        },
+                     },
+                  },
+               },
+            },
+         });
+
+         if (!call || call.status === 'ENDED') {
+            Logger.warn(`Call ${callId} already ended, skipping timeout handling`);
+            return;
+         }
+
+         // Update call status to ENDED with timeout reason
+         await prisma.call.update({
+            where: { id: callId },
+            data: {
+               status: 'ENDED',
+               endedAt: new Date(),
+               metadata: {
+                  ...(call.metadata || {}),
+                  endReason: timeoutType === 'acceptance' ? 'no_answer' : 'connection_failed',
+                  timedOut: true,
+               },
+            },
+         });
+
+         // Update all participants to MISSED or LEFT status
+         await prisma.callParticipant.updateMany({
+            where: {
+               callId,
+               status: { in: ['INVITED', 'JOINED'] },
+            },
+            data: {
+               status: timeoutType === 'acceptance' ? 'MISSED' : 'LEFT',
+               leftAt: new Date(),
+            },
+         });
+
+         // Remove from active calls and clear connections
+         this.activeCalls.delete(callId);
+         for (const [userId, connection] of this.userConnections.entries()) {
+            if (connection.callId === callId) {
+               this.userConnections.delete(userId);
+            }
+         }
+
+         // Clear all timeouts
+         this.clearCallTimeouts(callId);
+
+         // Emit timeout event to all participants via Socket.IO
+         const io = global.io; // Access the Socket.IO instance
+         if (io && call) {
+            const timeoutPayload = {
+               callId,
+               reason: timeoutType === 'acceptance' ? 'no_answer' : 'connection_failed',
+               message:
+                  timeoutType === 'acceptance'
+                     ? 'Call timed out - no one answered within 30 seconds'
+                     : 'Call timed out - connection could not be established',
+            };
+
+            // Emit to conversation room
+            io.to(`conversation_${call.conversation.id}`).emit('call:timeout', timeoutPayload);
+
+            // Emit to all participants' personal rooms
+            call.participants.forEach((participant) => {
+               io.to(`user_${participant.userId}`).emit('call:timeout', timeoutPayload);
+            });
+
+            Logger.info(`Emitted call:timeout event for call ${callId} (${timeoutType})`);
+         }
+
+         Logger.info(`Call ${callId} ended due to ${timeoutType} timeout`);
+      } catch (error) {
+         Logger.error(`Error handling ${timeoutType} timeout for call ${callId}:`, error);
+         throw error;
+      }
    }
 }
 
