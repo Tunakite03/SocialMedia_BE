@@ -1186,6 +1186,9 @@ const handleWebRTC = (socket, io) => {
             targetUserId,
          });
 
+         // Clear establishment timeout when offer is sent - WebRTC negotiation is progressing
+         webrtcService.clearEstablishmentTimeout(realCallId);
+
          // Forward offer to target user (hoặc broadcast trong room)
          if (targetUserId) {
             io.to(`user_${targetUserId}`).emit('call:offer', {
@@ -1300,6 +1303,14 @@ const handleWebRTC = (socket, io) => {
          const userId = socket.userId;
          const realCallId = resolveCallId(callId);
 
+         // Enhanced logging
+         console.log('=== WEBRTC CONNECTION STATE EVENT ===');
+         console.log('Call ID:', realCallId);
+         console.log('User ID:', userId);
+         console.log('State:', connectionState);
+         console.log('Timestamp:', new Date().toISOString());
+         console.log('====================================');
+
          // Process signaling event
          await webrtcService.processSignalingEvent(realCallId, userId, 'connection-state-change', {
             connectionState,
@@ -1309,7 +1320,29 @@ const handleWebRTC = (socket, io) => {
          // Clear establishment timeout when connection is successfully established
          if (connectionState === 'connected' || connectionState === 'stable') {
             webrtcService.clearEstablishmentTimeout(realCallId);
-            console.log(`WebRTC connection established for call ${realCallId}, cleared establishment timeout`);
+            console.log(`✅ [WebRTC] Connection established for call ${realCallId}, cleared establishment timeout`);
+         }
+
+         // Handle failed or disconnected connections
+         if (connectionState === 'failed' || connectionState === 'disconnected') {
+            console.log(`❌ [WebRTC] Connection ${connectionState} for call ${realCallId}`);
+
+            // Get call info
+            const call = await prisma.call.findUnique({
+               where: { id: realCallId },
+               include: { conversation: { select: { id: true } } },
+            });
+
+            if (call && (call.status === 'RINGING' || call.status === 'ONGOING')) {
+               // Notify participants about connection issue
+               io.to(`conversation_${call.conversation.id}`).emit('call:connection-issue', {
+                  callId,
+                  userId,
+                  connectionState,
+                  message: connectionState === 'failed' ? 'Kết nối thất bại' : 'Mất kết nối',
+                  timestamp: new Date(),
+               });
+            }
          }
 
          // Notify others about connection state change

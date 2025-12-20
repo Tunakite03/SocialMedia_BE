@@ -15,6 +15,8 @@ const {
    updateMediaState,
    getCallStats,
    markCallAsFailed,
+   getActiveTimeouts,
+   getCallSession,
 } = require('../controllers/callController');
 
 // Call management routes
@@ -34,5 +36,11 @@ router.get('/:callId/stats', authenticate, getCallStats);
 // Call history and transcripts
 router.get('/history', authenticate, getCallHistory);
 router.post('/:callId/transcript', authenticate, saveTranscript);
+
+// Debug routes (consider protecting these in production)
+if (process.env.NODE_ENV !== 'production') {
+   router.get('/debug/timeouts', authenticate, getActiveTimeouts);
+   router.get('/debug/session/:callId', authenticate, getCallSession);
+}
 
 module.exports = router;

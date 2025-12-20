@@ -21,6 +21,19 @@ const socketHandler = (io) => {
    io.on('connection', async (socket) => {
       Logger.logSocket('connection', socket.id, { userId: socket.user?.id });
 
+      // Log all WebRTC events for debugging
+      if (process.env.NODE_ENV !== 'production') {
+         socket.onAny((event, ...args) => {
+            if (event.includes('webrtc') || event.includes('call:')) {
+               console.log(`📡 [Socket Event] ${socket.id} -> ${event}`, {
+                  userId: socket.user?.id,
+                  timestamp: new Date().toISOString(),
+                  data: args[0],
+               });
+            }
+         });
+      }
+
       // Handle user connection
       await handleConnection(socket);
 

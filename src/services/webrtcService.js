@@ -444,6 +444,27 @@ class WebRTCService {
    }
 
    /**
+    * Get active timeouts info (for debugging)
+    */
+   getActiveTimeoutsInfo() {
+      const timeouts = [];
+
+      for (const [callId, timeout] of this.callTimeouts.entries()) {
+         timeouts.push({
+            callId,
+            hasAcceptanceTimeout: !!timeout.acceptanceTimeout,
+            hasEstablishmentTimeout: !!timeout.establishmentTimeout,
+         });
+      }
+
+      return {
+         totalActiveTimeouts: this.callTimeouts.size,
+         timeouts,
+         activeCalls: Array.from(this.activeCalls.keys()),
+      };
+   }
+
+   /**
     * Clear acceptance timeout when call is accepted
     */
    clearAcceptanceTimeout(callId) {
@@ -490,10 +511,16 @@ class WebRTCService {
     */
    clearEstablishmentTimeout(callId) {
       const timeouts = this.callTimeouts.get(callId);
+
+      Logger.info(`[TEST] Attempting to clear establishment timeout for ${callId}`);
+      Logger.info(`[TEST] Current timeouts:`, timeouts ? 'Found' : 'Not Found');
+
       if (timeouts?.establishmentTimeout) {
          clearTimeout(timeouts.establishmentTimeout);
-         Logger.info(`Cleared establishment timeout for call ${callId}`);
+         Logger.info(`[TEST] ✅ Successfully cleared establishment timeout for call ${callId}`);
          timeouts.establishmentTimeout = null;
+      } else {
+         Logger.warn(`[TEST] ⚠️ No establishment timeout found for call ${callId}`);
       }
    }
 

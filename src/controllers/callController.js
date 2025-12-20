@@ -1078,6 +1078,39 @@ const markCallAsFailed = async (req, res, next) => {
    }
 };
 
+/**
+ * Debug: Get active call timeouts
+ */
+const getActiveTimeouts = async (req, res, next) => {
+   try {
+      const timeoutInfo = webrtcService.getActiveTimeoutsInfo();
+      return successResponse(res, timeoutInfo, 'Active timeouts retrieved');
+   } catch (error) {
+      console.error('Get active timeouts error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Debug: Get call session info
+ */
+const getCallSession = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const realCallId = resolveCallId(callId);
+      const session = webrtcService.getCallSession(realCallId);
+
+      if (!session) {
+         throw new NotFoundError('Call session not found');
+      }
+
+      return successResponse(res, { session }, 'Call session retrieved');
+   } catch (error) {
+      console.error('Get call session error:', error);
+      next(error);
+   }
+};
+
 module.exports = {
    initiateCall,
    answerCall,
@@ -1092,4 +1125,6 @@ module.exports = {
    getCallStats,
    markCallAsFailed,
    handleUserDisconnectFromCall,
+   getActiveTimeouts,
+   getCallSession,
 };
