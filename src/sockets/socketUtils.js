@@ -741,8 +741,6 @@ const handleNotifications = (socket, io) => {
    });
 };
 
-
-
 /**
  * Broadcast transcription to call participants
  * This can be called from services to push transcriptions via WebSocket
@@ -751,10 +749,10 @@ const broadcastTranscription = async (io, callId, transcriptionData) => {
    try {
       Logger.info(`Broadcasting transcription to call room: call_${callId}`);
       Logger.debug('Transcription data:', transcriptionData);
-      
+
       // Emit to the call room - all participants who joined this room will receive
       io.to(`call_${callId}`).emit('call:transcription', transcriptionData);
-      
+
       Logger.info(`Transcription broadcast successful: "${transcriptionData.transcript?.substring(0, 50)}..."`);
    } catch (error) {
       Logger.error('Error broadcasting transcription:', error);
@@ -791,17 +789,17 @@ const handleCallTranscription = (socket, io) => {
 
          const roomName = `call_${callId}`;
          socket.join(roomName);
-         
+
          Logger.info(`User ${userId} joined call room: ${roomName}`);
          socket.emit('call:room-joined', { callId, room: roomName });
-         
+
          // Send any existing transcriptions
          const transcriptionService = require('../services/transcriptionService');
          const recentTranscripts = await transcriptionService.getCallTranscriptions(callId, {
             take: 50,
             isFinal: true,
          });
-         
+
          if (recentTranscripts.length > 0) {
             Logger.info(`Sending ${recentTranscripts.length} recent transcripts to user ${userId}`);
             socket.emit('call:transcription-history', {
@@ -825,7 +823,7 @@ const handleCallTranscription = (socket, io) => {
 
          const roomName = `call_${callId}`;
          socket.leave(roomName);
-         
+
          Logger.info(`User ${userId} left call room: ${roomName}`);
          socket.emit('call:room-left', { callId, room: roomName });
       } catch (error) {
@@ -836,27 +834,29 @@ const handleCallTranscription = (socket, io) => {
    // Handle transcription text from Web Speech API
    socket.on('call:transcription:text', async (data) => {
       try {
-         const { 
-            callId, 
-            transcript, 
-            isFinal, 
-            confidence, 
-            segmentId, 
-            speakerId, 
-            speakerName, 
-            speakerAvatar, 
-            language, 
-            source 
+         const {
+            callId,
+            transcript,
+            isFinal,
+            confidence,
+            segmentId,
+            speakerId,
+            speakerName,
+            speakerAvatar,
+            language,
+            source,
          } = data;
          const userId = socket.userId;
 
-         Logger.info(`[Transcription] Received from ${speakerName || userId}: "${transcript?.substring(0, 50)}..." (isFinal: ${isFinal})`);
+         Logger.info(
+            `[Transcription] Received from ${speakerName || userId}: "${transcript?.substring(0, 50)}..." (isFinal: ${isFinal})`,
+         );
 
          // Validate required fields
          if (!callId || !transcript) {
             Logger.warn('[Transcription] Missing required fields');
-            return socket.emit('call:transcription:error', { 
-               error: 'Missing required fields: callId, transcript' 
+            return socket.emit('call:transcription:error', {
+               error: 'Missing required fields: callId, transcript',
             });
          }
 
@@ -871,8 +871,8 @@ const handleCallTranscription = (socket, io) => {
 
          if (!participant) {
             Logger.warn(`[Transcription] User ${userId} not in call ${callId}`);
-            return socket.emit('call:transcription:error', { 
-               error: 'User not in call' 
+            return socket.emit('call:transcription:error', {
+               error: 'User not in call',
             });
          }
 
@@ -881,13 +881,10 @@ const handleCallTranscription = (socket, io) => {
          if (isFinal && transcript.trim().length > 0) {
             try {
                const sentimentService = require('../services/sentimentService');
-               sentimentResult = await sentimentService.analyzeSentiment(
-                  transcript,
-                  userId,
-                  callId,
-                  'call_transcript'
+               sentimentResult = await sentimentService.analyzeSentiment(transcript, userId, callId, 'call_transcript');
+               Logger.info(
+                  `[Transcription] Sentiment: ${sentimentResult.emotion} (${Math.round(sentimentResult.confidence * 100)}%)`,
                );
-               Logger.info(`[Transcription] Sentiment: ${sentimentResult.emotion} (${Math.round(sentimentResult.confidence * 100)}%)`);
             } catch (error) {
                Logger.warn('[Transcription] Failed to analyze sentiment:', error.message);
                // Continue without sentiment - not critical
@@ -909,19 +906,23 @@ const handleCallTranscription = (socket, io) => {
             language: language || 'en-US',
             source: source || 'web-speech-api',
             // Include sentiment data if available
-            sentiment: sentimentResult ? {
-               emotion: sentimentResult.emotion,
-               emotionClass: sentimentResult.emotionClass,
-               confidence: sentimentResult.confidence,
-               scores: sentimentResult.scores,
-            } : null,
+            sentiment: sentimentResult
+               ? {
+                    emotion: sentimentResult.emotion,
+                    emotionClass: sentimentResult.emotionClass,
+                    confidence: sentimentResult.confidence,
+                    scores: sentimentResult.scores,
+                 }
+               : null,
          };
 
          // Broadcast to all participants in the call room
          const roomName = `call_${callId}`;
          io.to(roomName).emit('call:transcription', transcriptionData);
 
-         Logger.info(`[Transcription] Broadcasted to ${roomName}${sentimentResult ? ` with sentiment: ${sentimentResult.emotion}` : ''}`);
+         Logger.info(
+            `[Transcription] Broadcasted to ${roomName}${sentimentResult ? ` with sentiment: ${sentimentResult.emotion}` : ''}`,
+         );
 
          // Save final transcripts to database
          if (isFinal) {
@@ -944,11 +945,10 @@ const handleCallTranscription = (socket, io) => {
                // Continue even if save fails
             }
          }
-
       } catch (error) {
          Logger.error('[Transcription] Error:', error);
-         socket.emit('call:transcription:error', { 
-            error: error.message 
+         socket.emit('call:transcription:error', {
+            error: error.message,
          });
       }
    });
@@ -1063,10 +1063,7 @@ const handleFaceEmotion = (socket, io) => {
          }
 
          // Get emotion statistics
-         const stats = await faceEmotionService.getUserEmotionStats(
-            userId || socket.userId,
-            callId
-         );
+         const stats = await faceEmotionService.getUserEmotionStats(userId || socket.userId, callId);
 
          socket.emit('call:emotion:stats', {
             callId,
@@ -1116,4 +1113,3 @@ module.exports = {
    getSocketId,
    getAllConnectedUsers,
 };
-
