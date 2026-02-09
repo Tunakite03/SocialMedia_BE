@@ -115,6 +115,18 @@ const schemas = {
    addReaction: Joi.object({
       type: Joi.string().valid('LIKE', 'LOVE', 'LAUGH', 'ANGRY', 'SAD', 'WOW').required(),
    }),
+
+   // Sentiment analysis - batch
+   analyzeBatchSentiment: Joi.object({
+      texts: Joi.array().items(Joi.string().min(1).max(5000)).min(1).max(100).required(),
+   }),
+
+   // Sentiment analysis - single
+   analyzeSingleSentiment: Joi.object({
+      text: Joi.string().min(1).max(5000).required(),
+      entityId: Joi.string().uuid().optional(),
+      entityType: Joi.string().valid('post', 'comment', 'message').optional(),
+   }),
 };
 
 module.exports = {

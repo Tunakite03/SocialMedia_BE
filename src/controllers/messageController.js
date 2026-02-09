@@ -4,13 +4,55 @@ const { successResponse, paginatedResponse } = require('../utils/responseFormatt
 const { validatePaginationParams, createPaginationConfig, processPaginatedResults } = require('../utils/pagination');
 const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
 
+// Track calls that have already had history messages created to prevent duplicates
+const callHistoryCreated = new Set();
+
+// Clean up old entries periodically (every 5 minutes)
+setInterval(() => {
+   if (callHistoryCreated.size > 1000) {
+      callHistoryCreated.clear();
+   }
+}, 5 * 60 * 1000);
+
 /**
  * Create a system message for call history
  */
 const createCallHistoryMessage = async (callData) => {
    try {
-      const { id: callId, conversationId, type, status, duration, startedAt, endedAt, initiator, participants } = callData;
-      
+      const {
+         id: callId,
+         conversationId,
+         type,
+         status,
+         duration,
+         startedAt,
+         endedAt,
+         initiator,
+         participants,
+      } = callData;
+
+      // Check if we already created a history message for this call (in-memory check)
+      if (callHistoryCreated.has(callId)) {
+         return null;
+      }
+
+      // Database-level check: Verify no existing call history message for this callId
+      const existingMessage = await prisma.message.findFirst({
+         where: {
+            type: 'CALL',
+            conversationId,
+            metadata: {
+               path: ['callId'],
+               equals: callId,
+            },
+         },
+      });
+
+      if (existingMessage) {
+         callHistoryCreated.add(callId); // Update in-memory cache
+         return existingMessage;
+      }
+
       // Calculate call duration in seconds if not provided
       let callDuration = duration;
       if (!callDuration && startedAt && endedAt) {
@@ -20,15 +62,13 @@ const createCallHistoryMessage = async (callData) => {
       // Format call status message
       let callMessage = '';
       const callType = type?.toLowerCase() === 'video' ? 'Video call' : 'Voice call';
-      
+
       switch (status) {
          case 'ENDED':
             if (callDuration && callDuration > 0) {
                const minutes = Math.floor(callDuration / 60);
                const seconds = callDuration % 60;
-               const durationStr = minutes > 0 
-                  ? `${minutes}m ${seconds}s`
-                  : `${seconds}s`;
+               const durationStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
                callMessage = `${callType} ended • Duration: ${durationStr}`;
             } else {
                callMessage = `${callType} ended`;
@@ -59,13 +99,13 @@ const createCallHistoryMessage = async (callData) => {
                callType: type,
                callStatus: status,
                callDuration: callDuration || 0,
-               participants: participants.map(p => ({
+               participants: participants.map((p) => ({
                   id: p.userId,
                   status: p.status,
                   joinedAt: p.joinedAt,
-                  leftAt: p.leftAt
-               }))
-            }
+                  leftAt: p.leftAt,
+               })),
+            },
          },
          include: {
             sender: {
@@ -85,12 +125,15 @@ const createCallHistoryMessage = async (callData) => {
          data: { updatedAt: new Date() },
       });
 
+      // Mark this call as having history created
+      callHistoryCreated.add(callId);
+
       // Emit to socket for real-time updates
       const io = global.io || global.socketio;
       if (io) {
          io.to(`conversation_${conversationId}`).emit('message:new', {
             ...message,
-            isCallHistory: true
+            isCallHistory: true,
          });
       }
 
@@ -565,7 +608,7 @@ const sendMessage = async (req, res, next) => {
       };
 
       if (sentimentResult) {
-         messageData.sentiment = sentimentResult.sentiment;
+         messageData.sentiment = sentimentResult.emotion;
          messageData.sentimentConfidence = sentimentResult.confidence;
          messageData.sentimentScores = sentimentResult.scores;
       }

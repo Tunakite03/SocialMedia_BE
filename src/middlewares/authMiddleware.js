@@ -94,7 +94,6 @@ const optionalAuth = async (req, res, next) => {
             }
          } catch (jwtError) {
             // Token is invalid, but we continue without user
-            console.log('Invalid token in optional auth:', jwtError.message);
          }
       }
 

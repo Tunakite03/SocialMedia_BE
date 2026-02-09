@@ -7,7 +7,9 @@ const {
    handleConversations,
    handleMessaging,
    handleNotifications,
+   handleFaceEmotion,
    handleWebRTC,
+   handleCallTranscription,
 } = require('./socketUtils');
 
 /**
@@ -21,19 +23,6 @@ const socketHandler = (io) => {
    io.on('connection', async (socket) => {
       Logger.logSocket('connection', socket.id, { userId: socket.user?.id });
 
-      // Log all WebRTC events for debugging
-      if (process.env.NODE_ENV !== 'production') {
-         socket.onAny((event, ...args) => {
-            if (event.includes('webrtc') || event.includes('call:')) {
-               console.log(`📡 [Socket Event] ${socket.id} -> ${event}`, {
-                  userId: socket.user?.id,
-                  timestamp: new Date().toISOString(),
-                  data: args[0],
-               });
-            }
-         });
-      }
-
       // Handle user connection
       await handleConnection(socket);
 
@@ -42,7 +31,9 @@ const socketHandler = (io) => {
       handleConversations(socket);
       handleMessaging(socket, io);
       handleNotifications(socket, io);
-      handleWebRTC(socket, io);
+      handleFaceEmotion(socket, io);
+      handleCallTranscription(socket, io);
+      // handleWebRTC(socket, io);
 
       // Handle disconnection
       socket.on('disconnect', async () => {

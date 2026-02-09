@@ -11,7 +11,6 @@ const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/er
 const createPost = async (req, res, next) => {
    try {
       const { content, type = 'TEXT', isPublic = true } = req.body;
-      console.log('Creating post:', { content, type, isPublic });
       const userId = req.user.id;
 
       // Convert string values to proper types for multipart/form-data
@@ -67,7 +66,7 @@ const createPost = async (req, res, next) => {
          try {
             sentimentResult = await sentimentService.analyzeSentiment(content, userId, null, 'post');
             if (sentimentResult) {
-               postData.sentiment = sentimentResult.sentiment;
+               postData.sentiment = sentimentResult.emotion;
                postData.sentimentConfidence = sentimentResult.confidence;
                postData.sentimentScores = sentimentResult.scores;
             }
@@ -183,9 +182,27 @@ const getFeed = async (req, res, next) => {
       // Process pagination results
       const { items: processedPosts, pagination } = processPaginatedResults(posts, paginationConfig);
 
-      // Process posts to include user's reaction
+      // Get follow status for all authors if user is authenticated
+      let followingMap = new Map();
+      if (userId && processedPosts.length > 0) {
+         const authorIds = [...new Set(processedPosts.map((post) => post.authorId))];
+         const follows = await prisma.follow.findMany({
+            where: {
+               followerId: userId,
+               followingId: { in: authorIds },
+            },
+            select: { followingId: true },
+         });
+         follows.forEach((follow) => followingMap.set(follow.followingId, true));
+      }
+
+      // Process posts to include user's reaction and following status
       const finalPosts = processedPosts.map((post) => ({
          ...post,
+         author: {
+            ...post.author,
+            isFollowing: followingMap.get(post.authorId) || false,
+         },
          userReaction: post.reactions?.[0]?.type || null,
          reactions: undefined, // Remove reactions array from response
       }));
@@ -240,8 +257,26 @@ const getPostById = async (req, res, next) => {
          throw new ValidationError('Access denied to this post');
       }
 
+      // Check if current user follows the author
+      let isFollowing = false;
+      if (userId) {
+         const follow = await prisma.follow.findUnique({
+            where: {
+               followerId_followingId: {
+                  followerId: userId,
+                  followingId: post.authorId,
+               },
+            },
+         });
+         isFollowing = !!follow;
+      }
+
       const processedPost = {
          ...post,
+         author: {
+            ...post.author,
+            isFollowing,
+         },
          userReaction: post.reactions?.[0]?.type || null,
          reactions: undefined,
       };
@@ -475,8 +510,26 @@ const getUserPosts = async (req, res, next) => {
          skip: parseInt(offset),
       });
 
+      // Get follow status for all authors if user is authenticated
+      let followingMap = new Map();
+      if (currentUserId && posts.length > 0) {
+         const authorIds = [...new Set(posts.map((post) => post.authorId))];
+         const follows = await prisma.follow.findMany({
+            where: {
+               followerId: currentUserId,
+               followingId: { in: authorIds },
+            },
+            select: { followingId: true },
+         });
+         follows.forEach((follow) => followingMap.set(follow.followingId, true));
+      }
+
       const processedPosts = posts.map((post) => ({
          ...post,
+         author: {
+            ...post.author,
+            isFollowing: followingMap.get(post.authorId) || false,
+         },
          userReaction: post.reactions?.[0]?.type || null,
          reactions: undefined,
       }));
@@ -488,7 +541,7 @@ const getUserPosts = async (req, res, next) => {
             limit: parseInt(limit),
             offset: parseInt(offset),
             hasMore: posts.length === parseInt(limit),
-         }
+         },
       );
    } catch (error) {
       console.error('Get user posts error:', error);

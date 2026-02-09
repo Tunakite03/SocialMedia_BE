@@ -1,7 +1,10 @@
 const prisma = require('../config/database');
 const { successResponse } = require('../utils/responseFormatter');
 const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/errors');
-const webrtcService = require('../services/webrtcService');
+const livekitService = require('../services/livekitService');
+const transcriptionService = require('../services/transcriptionService');
+const livekitWebhookHandler = require('../services/livekitWebhookHandler');
+const webrtcService = require('../services/webrtcService'); // Keep for backward compatibility during migration
 const { createCallHistoryMessage } = require('./messageController');
 
 // Global call ID mapping (same as in socketUtils)
@@ -124,14 +127,12 @@ const initiateCall = async (req, res, next) => {
                      },
                   },
                },
-            })
-         )
+            }),
+         ),
       );
 
-      // Initialize WebRTC session
-      await webrtcService.initializeCall(call.id, initiatorId, callParticipants);
-
-      console.log(`[DEBUG] Created call with ID: ${call.id}`);
+      // Initialize LiveKit call (replaces WebRTC signaling)
+      const livekitData = await livekitService.initializeCall(call.id, initiatorId, callParticipants, call.type);
 
       // Emit to socket for real-time updates
       const io = req.app.get('socketio');
@@ -142,7 +143,12 @@ const initiateCall = async (req, res, next) => {
             type: call.type.toLowerCase() === 'video' ? 'video' : 'audio',
             call: {
                ...call,
-               iceServers: webrtcService.getIceServers(),
+               // LiveKit connection data
+               livekit: {
+                  wsUrl: livekitData.wsUrl,
+                  roomName: livekitData.room.roomName,
+                  // Tokens will be requested via /token endpoint for security
+               },
             },
             participants: callParticipants,
          };
@@ -164,7 +170,7 @@ const initiateCall = async (req, res, next) => {
             call: { ...call, participants: callParticipants },
          },
          'Call initiated successfully',
-         HTTP_STATUS.CREATED
+         HTTP_STATUS.CREATED,
       );
    } catch (error) {
       console.error('Initiate call error:', error);
@@ -209,10 +215,6 @@ const answerCall = async (req, res, next) => {
       if (!call) {
          throw new NotFoundError('Call not found or cannot be answered');
       }
-
-      // Clear acceptance timeout and set establishment timeout
-      webrtcService.clearAcceptanceTimeout(callId);
-      webrtcService.setEstablishmentTimeout(callId);
 
       // Update call status to ongoing if first person to answer
       const updatedCall = await prisma.call.update({
@@ -340,8 +342,8 @@ const endCall = async (req, res, next) => {
          },
       });
 
-      // Clear all timeouts for this call
-      webrtcService.clearCallTimeouts(callId);
+      // Clear all LiveKit resources
+      await livekitService.handleCallEnd(callId);
 
       // Create call history message in conversation
       await createCallHistoryMessage({
@@ -616,8 +618,133 @@ const saveTranscript = async (req, res, next) => {
 };
 
 //////////////////////////////////////////////////////////////////////////////////
+// LiveKit-specific endpoints
+
 /**
- * Get ICE servers configuration for WebRTC
+ * Get LiveKit access token for a participant
+ */
+const getLivekitToken = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const userId = req.user.id;
+
+      const realCallId = resolveCallId(callId);
+
+      // Verify call exists and user is participant
+      const call = await prisma.call.findFirst({
+         where: {
+            id: realCallId,
+            status: { in: ['RINGING', 'ONGOING'] },
+            participants: {
+               some: { userId },
+            },
+         },
+         include: {
+            participants: {
+               where: { userId },
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                        avatar: true,
+                     },
+                  },
+               },
+            },
+         },
+      });
+
+      if (!call) {
+         throw new NotFoundError('Call not found or access denied');
+      }
+
+      const roomName = call.roomName || `call_${realCallId}`;
+      const participant = call.participants[0];
+
+      // Generate LiveKit token
+      const token = await livekitService.generateToken(
+         roomName,
+         userId,
+         {
+            username: participant.user.username,
+            displayName: participant.user.displayName,
+            avatar: participant.user.avatar,
+         },
+         {
+            canPublish: true,
+            canSubscribe: true,
+            canPublishData: true,
+         },
+      );
+
+      return successResponse(
+         res,
+         {
+            token,
+            wsUrl: livekitService.wsUrl,
+            roomName,
+            callId: realCallId,
+         },
+         'LiveKit token generated successfully',
+      );
+   } catch (error) {
+      console.error('Get LiveKit token error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Get LiveKit room info and participants
+ */
+const getLivekitRoomInfo = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const userId = req.user.id;
+
+      const realCallId = resolveCallId(callId);
+
+      // Verify call exists and user is participant
+      const call = await prisma.call.findFirst({
+         where: {
+            id: realCallId,
+            participants: {
+               some: { userId },
+            },
+         },
+      });
+
+      if (!call) {
+         throw new NotFoundError('Call not found or access denied');
+      }
+
+      // Get room stats from LiveKit
+      const roomStats = await livekitService.getRoomStats(realCallId);
+
+      return successResponse(res, roomStats, 'Room info retrieved successfully');
+   } catch (error) {
+      console.error('Get LiveKit room info error:', error);
+      next(error);
+   }
+};
+
+/**
+ * LiveKit health check
+ */
+const livekitHealthCheck = async (req, res, next) => {
+   try {
+      const health = await livekitService.healthCheck();
+      return successResponse(res, health, 'LiveKit health check completed');
+   } catch (error) {
+      console.error('LiveKit health check error:', error);
+      next(error);
+   }
+};
+
+//////////////////////////////////////////////////////////////////////////////////
+/**
+ * Get ICE servers configuration for WebRTC (deprecated - keeping for backward compatibility)
  */
 const getIceServers = async (req, res, next) => {
    try {
@@ -639,8 +766,6 @@ const joinCallRoom = async (req, res, next) => {
       const userId = req.user.id;
 
       const realCallId = resolveCallId(callId);
-
-      console.log(`[DEBUG] Join call room request - Custom: ${callId}, Real: ${realCallId}, UserID: ${userId}`);
 
       // Verify call exists and user is participant
       const call = await prisma.call.findFirst({
@@ -668,20 +793,12 @@ const joinCallRoom = async (req, res, next) => {
          },
       });
 
-      console.log(`[DEBUG] Found call: ${call ? 'YES' : 'NO'}`);
       if (!call) {
          // Let's also check if the call exists at all (regardless of status/participants)
          const anyCall = await prisma.call.findUnique({
             where: { id: realCallId },
          });
-         console.log(`[DEBUG] Call exists in DB: ${anyCall ? 'YES' : 'NO'}`);
-         if (anyCall) {
-            console.log(
-               `[DEBUG] Call status: ${anyCall.status}, Call participants count: ${
-                  anyCall.participants?.length || 'N/A'
-               }`
-            );
-         }
+
          throw new NotFoundError('Call not found or cannot be joined');
       }
 
@@ -702,7 +819,7 @@ const joinCallRoom = async (req, res, next) => {
                  }
                : null,
          },
-         'Call room joined successfully'
+         'Call room joined successfully',
       );
    } catch (error) {
       console.error('Join call room error:', error);
@@ -734,9 +851,8 @@ const updateQualityMetrics = async (req, res, next) => {
       if (!call) {
          // Log warning but don't fail - this allows frontend to send metrics before call is fully created
          console.warn(
-            `[WARNING] Quality metrics received for non-existent or inaccessible call: ${callId} (resolved: ${realCallId}), user: ${userId}`
+            `[WARNING] Quality metrics received for non-existent or inaccessible call: ${callId} (resolved: ${realCallId}), user: ${userId}`,
          );
-         console.log(`[DEBUG] Metrics data:`, metrics);
          // Return success to prevent frontend from retrying with errors
          return successResponse(res, {}, 'Quality metrics logged (call not found)');
       }
@@ -840,7 +956,7 @@ const getCallStats = async (req, res, next) => {
             stats,
             qualityMetrics,
          },
-         'Call statistics retrieved successfully'
+         'Call statistics retrieved successfully',
       );
    } catch (error) {
       console.error('Get call stats error:', error);
@@ -950,7 +1066,6 @@ const handleUserDisconnectFromCall = async (userId) => {
                participants: call.participants,
             });
 
-            console.log(`[DISCONNECT] Call ${call.id} ended due to all participants leaving`);
          }
 
          // Emit disconnect event
@@ -1061,7 +1176,6 @@ const markCallAsFailed = async (req, res, next) => {
       });
 
       // Log call failure
-      console.log(`[FAILURE] Call ${realCallId} marked as failed by user ${userId}`); // Emit failure event
       const io = req.app.get('socketio');
       if (io) {
          io.to(`conversation_${call.conversation.id}`).emit('call:failed', {
@@ -1111,6 +1225,185 @@ const getCallSession = async (req, res, next) => {
    }
 };
 
+/**
+ * Enable transcription for a call
+ */
+const enableTranscription = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const { language = 'en-US', model = 'default' } = req.body;
+      const realCallId = resolveCallId(callId);
+
+      // Verify call exists and user is participant
+      const call = await prisma.call.findFirst({
+         where: {
+            id: realCallId,
+            participants: {
+               some: { userId: req.user.id },
+            },
+         },
+      });
+
+      if (!call) {
+         throw new NotFoundError('Call not found or access denied');
+      }
+
+      if (call.status !== 'ONGOING') {
+         throw new ValidationError('Can only enable transcription for ongoing calls');
+      }
+
+      await transcriptionService.enableCallTranscription(realCallId, {
+         language,
+         model,
+      });
+
+      return successResponse(
+         res,
+         { callId: realCallId, transcriptionEnabled: true },
+         'Transcription enabled successfully',
+      );
+   } catch (error) {
+      console.error('Enable transcription error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Process audio chunk for transcription
+ * Accepts audio data from client and processes it for transcription
+ */
+const processAudioTranscription = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const realCallId = resolveCallId(callId);
+      const userId = req.user.id;
+
+      // Verify call and participant
+      const participant = await prisma.callParticipant.findFirst({
+         where: {
+            callId: realCallId,
+            userId,
+            status: 'JOINED',
+         },
+         include: {
+            call: true,
+         },
+      });
+
+      if (!participant || participant.call.status !== 'ONGOING') {
+         throw new NotFoundError('Active call not found or access denied');
+      }
+
+      // Get audio buffer from request (multipart/form-data)
+      if (!req.file || !req.file.buffer) {
+         throw new ValidationError('Audio file is required');
+      }
+
+      const audioBuffer = req.file.buffer;
+      const { language, isFinal, segmentId, startTime, endTime } = req.body;
+
+      // Process audio and send transcription
+      const transcript = await transcriptionService.processAudioChunk(realCallId, userId, audioBuffer, {
+         language,
+         isFinal: isFinal === 'true' || isFinal === true,
+         segmentId,
+         startTime: startTime ? parseFloat(startTime) : undefined,
+         endTime: endTime ? parseFloat(endTime) : undefined,
+      });
+
+      return successResponse(res, { transcript }, 'Audio transcription processed');
+   } catch (error) {
+      console.error('Process audio transcription error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Get transcriptions for a call
+ */
+const getCallTranscriptions = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const realCallId = resolveCallId(callId);
+      const { isFinal, speakerId, skip, take } = req.query;
+
+      // Verify user is participant
+      const participant = await prisma.callParticipant.findFirst({
+         where: {
+            callId: realCallId,
+            userId: req.user.id,
+         },
+      });
+
+      if (!participant) {
+         throw new NotFoundError('Call not found or access denied');
+      }
+
+      const transcripts = await transcriptionService.getCallTranscriptions(realCallId, {
+         isFinal: isFinal === 'true' ? true : isFinal === 'false' ? false : undefined,
+         speakerId,
+         skip: skip ? parseInt(skip) : 0,
+         take: take ? parseInt(take) : 100,
+      });
+
+      return successResponse(res, { transcripts, count: transcripts.length }, 'Transcriptions retrieved');
+   } catch (error) {
+      console.error('Get call transcriptions error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Get call summary with transcriptions
+ */
+const getCallSummary = async (req, res, next) => {
+   try {
+      const { callId } = req.params;
+      const realCallId = resolveCallId(callId);
+
+      // Verify user is participant
+      const participant = await prisma.callParticipant.findFirst({
+         where: {
+            callId: realCallId,
+            userId: req.user.id,
+         },
+      });
+
+      if (!participant) {
+         throw new NotFoundError('Call not found or access denied');
+      }
+
+      const summary = await transcriptionService.generateCallSummary(realCallId);
+
+      return successResponse(res, { summary }, 'Call summary generated');
+   } catch (error) {
+      console.error('Get call summary error:', error);
+      next(error);
+   }
+};
+
+/**
+ * LiveKit webhook handler
+ * Receives events from LiveKit server
+ */
+const handleLivekitWebhook = async (req, res, next) => {
+   try {
+      const authHeader = req.headers.authorization;
+      const body = req.rawBody || JSON.stringify(req.body);
+
+      // Verify and parse webhook
+      const event = await livekitWebhookHandler.verifyAndParseWebhook(body, authHeader);
+
+      // Handle event
+      await livekitWebhookHandler.handleWebhookEvent(event);
+
+      res.status(200).json({ success: true });
+   } catch (error) {
+      console.error('LiveKit webhook error:', error);
+      res.status(400).json({ error: error.message });
+   }
+};
+
 module.exports = {
    initiateCall,
    answerCall,
@@ -1118,6 +1411,17 @@ module.exports = {
    rejectCall,
    getCallHistory,
    saveTranscript,
+   // LiveKit endpoints
+   getLivekitToken,
+   getLivekitRoomInfo,
+   livekitHealthCheck,
+   // Transcription endpoints
+   enableTranscription,
+   processAudioTranscription,
+   getCallTranscriptions,
+   getCallSummary,
+   handleLivekitWebhook,
+   // Deprecated WebRTC endpoints (keeping for backward compatibility)
    getIceServers,
    joinCallRoom,
    updateQualityMetrics,

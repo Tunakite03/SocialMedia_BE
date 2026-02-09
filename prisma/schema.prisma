@@ -269,17 +269,24 @@ model Call {
   endedAt         DateTime?
   createdAt       DateTime             @default(now())
   initiatorId     String
-  iceServers      Json?
+  // LiveKit fields (NEW)
+  roomName        String?              // LiveKit room name (e.g., "call_{callId}")
+  livekitRoomId   String?              // LiveKit room SID
+  // Deprecated WebRTC fields (kept for backward compatibility)
+  iceServers      Json?                // DEPRECATED: ICE servers config (not needed with LiveKit)
   metadata        Json?
   updatedAt       DateTime             @default(now()) @updatedAt
   participants    CallParticipant[]
   qualityMetrics  CallQualityMetric[]
   signalingEvents CallSignalingEvent[]
   transcripts     CallTranscript[]
+  faceEmotions    FaceEmotion[]
   conversation    Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   initiator       User                 @relation("CallInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, startedAt])
+  @@index([roomName])
+  @@index([livekitRoomId])
   @@map("calls")
 }
 
@@ -303,18 +310,27 @@ model CallParticipant {
 }
 
 model CallTranscript {
-  id         String   @id @default(uuid())
-  callId     String
-  language   String?
-  transcript String
-  confidence Float?
-  createdAt  DateTime @default(now())
-  speakerId  String?
-  timestamp  DateTime @default(now())
-  call       Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
-  speaker    User?    @relation("CallTranscriptSpeaker", fields: [speakerId], references: [id], onDelete: Cascade)
+  id           String   @id @default(uuid())
+  callId       String
+  language     String?
+  transcript   String   @db.Text
+  confidence   Float?
+  createdAt    DateTime @default(now())
+  speakerId    String?
+  timestamp    DateTime @default(now())
+  // Realtime transcription fields
+  isFinal      Boolean  @default(false)  // Whether this is a final transcript or interim
+  segmentId    String?                   // Segment ID for grouping related transcripts
+  startTime    Float?                    // Audio start time in seconds
+  endTime      Float?                    // Audio end time in seconds
+  words        Json?                     // Individual words with timestamps
+  sentiment    SentimentType?            // Optional sentiment analysis
+  call         Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  speaker      User?    @relation("CallTranscriptSpeaker", fields: [speakerId], references: [id], onDelete: Cascade)
 
   @@index([callId, createdAt])
+  @@index([callId, isFinal, timestamp])
+  @@index([segmentId])
   @@map("call_transcripts")
 }
 
@@ -364,6 +380,21 @@ model SentimentAnalysis {
   user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sentiment_analyses")
+}
+
+model FaceEmotion {
+  id         String        @id @default(uuid())
+  userId     String
+  callId     String?
+  emotion    SentimentType
+  confidence Float
+  metadata   Json?
+  timestamp  DateTime      @default(now())
+  call       Call?         @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([userId, timestamp(sort: Desc)])
+  @@index([callId, timestamp(sort: Desc)])
+  @@map("face_emotions")
 }
 
 enum UserRole {
@@ -439,7 +470,11 @@ enum ReactionType {
 }
 
 enum SentimentType {
-  POSITIVE
-  NEUTRAL
-  NEGATIVE
+  ENJOYMENT
+  SADNESS
+  ANGER
+  FEAR
+  DISGUST
+  SURPRISE
+  OTHER
 }

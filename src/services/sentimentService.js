@@ -50,16 +50,35 @@ class SentimentService {
                }
             );
 
-            // Normalize sentiment to uppercase to match SentimentType enum (POSITIVE, NEUTRAL, NEGATIVE)
-            const sentiment = response.data.sentiment.toUpperCase();
+            // Map emotion class index to emotion name
+            const emotionMap = {
+               0: 'ENJOYMENT',
+               1: 'SADNESS',
+               2: 'ANGER',
+               3: 'FEAR',
+               4: 'DISGUST',
+               5: 'SURPRISE',
+               6: 'OTHER',
+            };
+
+            // Get emotion from class index
+            const emotionClass = response.data.emotion_class;
+            const emotion = emotionMap[emotionClass] || 'OTHER';
+
+            // Map scores to emotion names
             const scores = {
-               POSITIVE: response.data.scores.positive,
-               NEUTRAL: response.data.scores.neutral,
-               NEGATIVE: response.data.scores.negative,
+               ENJOYMENT: response.data.scores[0],
+               SADNESS: response.data.scores[1],
+               ANGER: response.data.scores[2],
+               FEAR: response.data.scores[3],
+               DISGUST: response.data.scores[4],
+               SURPRISE: response.data.scores[5],
+               OTHER: response.data.scores[6],
             };
 
             const result = {
-               sentiment: sentiment,
+               emotion: emotion,
+               emotionClass: emotionClass,
                confidence: response.data.confidence,
                scores: scores,
                processingTime: response.data.processing_time,
@@ -69,7 +88,7 @@ class SentimentService {
             if (userId && entityId && entityType) {
                await this._storeSentimentAnalysis(
                   text,
-                  result.sentiment,
+                  result.emotion,
                   result.confidence,
                   userId,
                   entityId,
@@ -93,18 +112,19 @@ class SentimentService {
    }
 
    /**
-    * Analyze sentiment of multiple texts
+    * Analyze sentiment of multiple texts and return a single aggregated sentiment
+    * This is useful for analyzing a conversation and getting the overall sentiment
     */
    async analyzeBatchSentiment(texts, userId = null) {
       if (!Array.isArray(texts) || texts.length === 0) {
-         return [];
+         return this._getDefaultSentiment();
       }
 
       // Filter out empty texts
       const validTexts = texts.filter((text) => text && typeof text === 'string' && text.trim().length > 0);
 
       if (validTexts.length === 0) {
-         return texts.map(() => this._getDefaultSentiment());
+         return this._getDefaultSentiment();
       }
 
       let lastError;
@@ -124,17 +144,36 @@ class SentimentService {
                }
             );
 
-            // Normalize results to match SentimentType enum
-            return response.data.results.map((result) => ({
-               sentiment: result.sentiment.toUpperCase(),
-               confidence: result.confidence,
+            // Map emotion class index to emotion name
+            const emotionMap = {
+               0: 'ENJOYMENT',
+               1: 'SADNESS',
+               2: 'ANGER',
+               3: 'FEAR',
+               4: 'DISGUST',
+               5: 'SURPRISE',
+               6: 'OTHER',
+            };
+
+            const emotionClass = response.data.emotion_class;
+            const emotion = emotionMap[emotionClass] || 'OTHER';
+
+            return {
+               emotion: emotion,
+               emotionClass: emotionClass,
+               confidence: response.data.confidence,
                scores: {
-                  POSITIVE: result.scores.positive,
-                  NEUTRAL: result.scores.neutral,
-                  NEGATIVE: result.scores.negative,
+                  ENJOYMENT: response.data.scores[0],
+                  SADNESS: response.data.scores[1],
+                  ANGER: response.data.scores[2],
+                  FEAR: response.data.scores[3],
+                  DISGUST: response.data.scores[4],
+                  SURPRISE: response.data.scores[5],
+                  OTHER: response.data.scores[6],
                },
-               processingTime: result.processing_time,
-            }));
+               textsAnalyzed: response.data.texts_analyzed,
+               processingTime: response.data.processing_time,
+            };
          } catch (error) {
             lastError = error;
             console.error(`Batch sentiment analysis attempt ${attempt} failed:`, error.message);
@@ -146,7 +185,7 @@ class SentimentService {
       }
 
       console.error('All batch sentiment analysis attempts failed:', lastError.message);
-      return validTexts.map(() => this._getDefaultSentiment());
+      return this._getDefaultSentiment();
    }
 
    /**
@@ -171,9 +210,13 @@ class SentimentService {
          });
 
          const stats = {
-            POSITIVE: 0,
-            NEUTRAL: 0,
-            NEGATIVE: 0,
+            ENJOYMENT: 0,
+            SADNESS: 0,
+            ANGER: 0,
+            FEAR: 0,
+            DISGUST: 0,
+            SURPRISE: 0,
+            OTHER: 0,
             total: 0,
          };
 
@@ -184,26 +227,42 @@ class SentimentService {
 
          // Calculate percentages
          if (stats.total > 0) {
-            stats.positivePercentage = (stats.POSITIVE / stats.total) * 100;
-            stats.neutralPercentage = (stats.NEUTRAL / stats.total) * 100;
-            stats.negativePercentage = (stats.NEGATIVE / stats.total) * 100;
+            stats.enjoymentPercentage = (stats.ENJOYMENT / stats.total) * 100;
+            stats.sadnessPercentage = (stats.SADNESS / stats.total) * 100;
+            stats.angerPercentage = (stats.ANGER / stats.total) * 100;
+            stats.fearPercentage = (stats.FEAR / stats.total) * 100;
+            stats.disgustPercentage = (stats.DISGUST / stats.total) * 100;
+            stats.surprisePercentage = (stats.SURPRISE / stats.total) * 100;
+            stats.otherPercentage = (stats.OTHER / stats.total) * 100;
          } else {
-            stats.positivePercentage = 0;
-            stats.neutralPercentage = 0;
-            stats.negativePercentage = 0;
+            stats.enjoymentPercentage = 0;
+            stats.sadnessPercentage = 0;
+            stats.angerPercentage = 0;
+            stats.fearPercentage = 0;
+            stats.disgustPercentage = 0;
+            stats.surprisePercentage = 0;
+            stats.otherPercentage = 0;
          }
 
          return stats;
       } catch (error) {
          console.error('Error getting user sentiment stats:', error);
          return {
-            POSITIVE: 0,
-            NEUTRAL: 0,
-            NEGATIVE: 0,
+            ENJOYMENT: 0,
+            SADNESS: 0,
+            ANGER: 0,
+            FEAR: 0,
+            DISGUST: 0,
+            SURPRISE: 0,
+            OTHER: 0,
             total: 0,
-            positivePercentage: 0,
-            neutralPercentage: 0,
-            negativePercentage: 0,
+            enjoymentPercentage: 0,
+            sadnessPercentage: 0,
+            angerPercentage: 0,
+            fearPercentage: 0,
+            disgustPercentage: 0,
+            surprisePercentage: 0,
+            otherPercentage: 0,
          };
       }
    }
@@ -245,16 +304,21 @@ class SentimentService {
    }
 
    /**
-    * Get default sentiment for fallback cases
+    * Get default emotion for fallback cases
     */
    _getDefaultSentiment() {
       return {
-         sentiment: 'NEUTRAL',
+         emotion: 'OTHER',
+         emotionClass: 6,
          confidence: 0.0,
          scores: {
-            POSITIVE: 0.0,
-            NEUTRAL: 1.0,
-            NEGATIVE: 0.0,
+            ENJOYMENT: 0.0,
+            SADNESS: 0.0,
+            ANGER: 0.0,
+            FEAR: 0.0,
+            DISGUST: 0.0,
+            SURPRISE: 0.0,
+            OTHER: 1.0,
          },
          processingTime: 0.0,
       };

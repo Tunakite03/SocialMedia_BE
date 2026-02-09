@@ -8,4 +8,6 @@ router.use('/conversations', require('./messageRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
 router.use('/calls', require('./callRoutes'));
 router.use('/upload', require('./uploadRoutes'));
+router.use('/sentiment', require('./sentimentRoutes'));
+router.use('/face-emotions', require('./faceEmotionRoutes'));
 module.exports = router;

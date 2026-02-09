@@ -60,7 +60,7 @@ const createComment = async (req, res, next) => {
       };
 
       if (sentimentResult) {
-         commentData.sentiment = sentimentResult.sentiment;
+         commentData.sentiment = sentimentResult.emotion;
          commentData.sentimentConfidence = sentimentResult.confidence;
          commentData.sentimentScores = sentimentResult.scores;
       }

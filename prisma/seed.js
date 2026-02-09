@@ -37,7 +37,7 @@ const SAMPLE_COMMENT_LINES = [
 const REACTION_TYPES = ['LIKE', 'LOVE', 'LAUGH', 'WOW'];
 
 async function main() {
-   console.log('🌱 Starting database seeding...');
+   console.log(' Starting database seeding...');
 
    // Create admin user
    const hashedPassword = await bcrypt.hash('admin123', 12);
@@ -104,7 +104,7 @@ async function main() {
          },
       });
       createdUsers.push(user);
-      console.log('✅ Test user created:', user.email);
+      console.log('Test user created:', user.email);
    }
 
    // Create some follow relationships
@@ -118,7 +118,7 @@ async function main() {
       skipDuplicates: true,
    });
 
-   console.log('✅ Follow relationships created');
+   console.log('Follow relationships created');
 
    // Rebuild sample posts for a richer feed experience
    await prisma.reaction.deleteMany();
@@ -154,14 +154,14 @@ async function main() {
          }
 
          return postData;
-      })
+      }),
    );
 
    await prisma.post.createMany({
       data: generatedPosts,
    });
 
-   console.log(`✅ Generated ${generatedPosts.length} sample posts`);
+   console.log(`Generated ${generatedPosts.length} sample posts`);
 
    // Add sample comments and reactions to top feed posts
    const postsForInteractions = await prisma.post.findMany({
@@ -206,7 +206,7 @@ async function main() {
          userId: user.id,
          postId: post.id,
          createdAt: new Date(now - (generatedPosts.length + postIdx + userIdx + 1) * 15 * 60 * 1000),
-      }))
+      })),
    );
 
    if (postReactionsData.length) {
@@ -227,7 +227,7 @@ async function main() {
       await prisma.reaction.createMany({ data: commentReactionsData, skipDuplicates: true });
    }
 
-   console.log('✅ Sample comments and reactions created');
+   console.log('Sample comments and reactions created');
 
    // Create a test conversation
    const conversation = await prisma.conversation.create({
@@ -257,9 +257,9 @@ async function main() {
       ],
    });
 
-   console.log('✅ Sample conversation and messages created');
+   console.log('Sample conversation and messages created');
 
-   console.log('🎉 Database seeding completed successfully!');
+   console.log('Database seeding completed successfully!');
 }
 
 main()
@@ -267,7 +267,7 @@ main()
       await prisma.$disconnect();
    })
    .catch(async (e) => {
-      console.error('❌ Error during seeding:', e);
+      console.error('Error during seeding:', e);
       await prisma.$disconnect();
       process.exit(1);
    });

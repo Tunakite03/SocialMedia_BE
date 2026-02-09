@@ -86,6 +86,13 @@ const limiter = rateLimit({
 // app.use(limiter);
 
 // ===== Body parsers =====
+// Special handling for webhook endpoints - capture raw body for signature verification
+app.use('/api/v1/calls/livekit/webhook', express.raw({ type: 'application/webhook+json' }));
+app.use('/api/v1/calls/livekit/webhook', (req, res, next) => {
+   req.rawBody = req.body.toString('utf8');
+   next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
