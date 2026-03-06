@@ -44,6 +44,12 @@ const schemas = {
       password: Joi.string().required(),
    }),
 
+   // Google login
+   googleLogin: Joi.object({
+      credential: Joi.string().optional(),
+      accessToken: Joi.string().optional(),
+   }).or('credential', 'accessToken'),
+
    // Password reset request
    forgotPassword: Joi.object({
       email: Joi.string().email().required(),

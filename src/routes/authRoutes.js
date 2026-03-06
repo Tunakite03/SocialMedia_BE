@@ -140,6 +140,34 @@ router.post('/login', validate(schemas.login), authController.login);
 
 /**
  * @swagger
+ * /auth/google:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: Login or register with Google
+ *     description: Authenticate a user using a Google ID token credential
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - credential
+ *             properties:
+ *               credential:
+ *                 type: string
+ *                 description: Google ID token from Google Sign-In
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *       401:
+ *         description: Invalid Google credential
+ */
+router.post('/google', validate(schemas.googleLogin), authController.googleLogin);
+
+/**
+ * @swagger
  * /auth/refresh:
  *   post:
  *     tags:

@@ -1,6 +1,7 @@
 'use strict';
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
 const prisma = require('../config/database');
 const { successResponse } = require('../utils/responseFormatter');
 const Logger = require('../utils/logger');
@@ -8,6 +9,8 @@ const emailService = require('../services/mailService');
 const uploadService = require('../services/uploadService');
 const authUtils = require('../utils/auth');
 const { getRandomAvatarUrl, getClientIpAddress, parseUserAgent } = require('../utils/auth');
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || process.env.CLIENT_ID);
 const {
    ConflictError,
    AuthenticationError,
@@ -100,7 +103,7 @@ const register = async (req, res, next) => {
             refreshToken,
          },
          SUCCESS_MESSAGES.USER_REGISTERED,
-         HTTP_STATUS.CREATED
+         HTTP_STATUS.CREATED,
       );
    } catch (error) {
       Logger.error('Registration error', error);
@@ -125,6 +128,12 @@ const login = async (req, res, next) => {
       if (!user) {
          Logger.warn('Login failed - user not found', { email });
          throw new AuthenticationError(ERROR_MESSAGES.INVALID_CREDENTIALS);
+      }
+
+      // Google-only accounts cannot login with password
+      if (!user.password) {
+         Logger.warn('Login failed - Google-only account', { email, userId: user.id });
+         throw new AuthenticationError('This account uses Google Sign-In. Please login with Google.');
       }
 
       // Check password
@@ -183,7 +192,7 @@ const login = async (req, res, next) => {
             accessToken,
             refreshToken,
          },
-         SUCCESS_MESSAGES.LOGIN_SUCCESSFUL
+         SUCCESS_MESSAGES.LOGIN_SUCCESSFUL,
       );
    } catch (error) {
       Logger.error('Login error', error);
@@ -266,7 +275,7 @@ const refreshToken = async (req, res, next) => {
             accessToken,
             refreshToken: newRefreshToken,
          },
-         SUCCESS_MESSAGES.TOKEN_REFRESHED
+         SUCCESS_MESSAGES.TOKEN_REFRESHED,
       );
    } catch (error) {
       Logger.error('Token refresh failed', { error: error.message });
@@ -575,7 +584,7 @@ const forgotPassword = async (req, res, next) => {
          return successResponse(
             res,
             null,
-            'If an account with that email exists, a password reset link has been sent.'
+            'If an account with that email exists, a password reset link has been sent.',
          );
       }
 
@@ -654,9 +663,133 @@ const resetPassword = async (req, res, next) => {
    }
 };
 
+/**
+ * Login or register with Google OAuth
+ */
+const googleLogin = async (req, res, next) => {
+   try {
+      const { credential, accessToken: googleAccessToken } = req.body;
+
+      Logger.info('Google login attempt');
+
+      let googleId, email, name, picture;
+
+      if (credential) {
+         // Verify Google ID token (from GoogleLogin component)
+         const clientId = process.env.GOOGLE_CLIENT_ID || process.env.CLIENT_ID;
+         const ticket = await googleClient.verifyIdToken({
+            idToken: credential,
+            audience: clientId,
+         });
+         const payload = ticket.getPayload();
+         if (!payload.email_verified) {
+            throw new AuthenticationError('Google email is not verified');
+         }
+         ({ sub: googleId, email, name, picture } = payload);
+      } else if (googleAccessToken) {
+         // Verify Google access token (from useGoogleLogin hook)
+         const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${googleAccessToken}` },
+         });
+         if (!response.ok) {
+            throw new AuthenticationError('Invalid Google access token');
+         }
+         const userInfo = await response.json();
+         if (!userInfo.email_verified) {
+            throw new AuthenticationError('Google email is not verified');
+         }
+         ({ sub: googleId, email, name, picture } = userInfo);
+      } else {
+         throw new ValidationError('Google credential or access token is required');
+      }
+
+      // Find existing user by googleId or email
+      let user = await prisma.user.findFirst({
+         where: { OR: [{ googleId }, { email }] },
+      });
+
+      if (user) {
+         // Link Google account if user exists by email but without googleId
+         if (!user.googleId) {
+            await prisma.user.update({
+               where: { id: user.id },
+               data: { googleId, emailVerified: true },
+            });
+         }
+      } else {
+         // Create new user - generate a unique username from email
+         const baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+         let username = baseUsername;
+         let counter = 1;
+         while (await prisma.user.findUnique({ where: { username } })) {
+            username = `${baseUsername}${counter}`;
+            counter++;
+         }
+
+         user = await prisma.user.create({
+            data: {
+               email,
+               username,
+               displayName: name || baseUsername,
+               googleId,
+               avatar: picture || getRandomAvatarUrl(),
+               emailVerified: true,
+            },
+         });
+
+         Logger.logDatabase('CREATE', 'user', { userId: user.id, email, provider: 'google' });
+
+         // Send welcome email asynchronously
+         emailService.sendWelcomeEmail(email, user.displayName).catch((error) => {
+            Logger.error('Failed to send welcome email after Google registration', {
+               userId: user.id,
+               error: error.message,
+            });
+         });
+      }
+
+      if (!user.isActive) {
+         throw new AuthenticationError(ERROR_MESSAGES.ACCOUNT_DEACTIVATED);
+      }
+
+      // Generate tokens and create session
+      const ipAddress = getClientIpAddress(req);
+      const userAgent = parseUserAgent(req.get('User-Agent'));
+      const { accessToken, refreshToken, sessionData } = authUtils.generateTokens(user.id, ipAddress, userAgent);
+
+      const updatedUser = await prisma.user.update({
+         where: { id: user.id },
+         data: { lastSeen: new Date(), isOnline: true },
+         select: {
+            id: true,
+            email: true,
+            username: true,
+            displayName: true,
+            avatar: true,
+            bio: true,
+            dateOfBirth: true,
+            role: true,
+            isOnline: true,
+            lastSeen: true,
+            createdAt: true,
+         },
+      });
+
+      await prisma.session.create({ data: sessionData });
+
+      Logger.logAuth('google_login', updatedUser, req.ip);
+
+      return successResponse(res, { user: updatedUser, accessToken, refreshToken }, SUCCESS_MESSAGES.LOGIN_SUCCESSFUL);
+   } catch (error) {
+      Logger.error('Google login error', error);
+      next(error);
+   }
+};
+
 module.exports = {
    register,
    login,
+   googleLogin,
    refreshToken,
    logout,
    getSessions,

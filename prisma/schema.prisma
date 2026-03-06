@@ -11,7 +11,8 @@ model User {
   id                  String                    @id @default(uuid())
   email               String                    @unique
   username            String                    @unique
-  password            String
+  password            String?
+  googleId            String?                   @unique
   displayName         String
   avatar              String?
   bio                 String?
@@ -78,19 +79,19 @@ model Follow {
 }
 
 model Post {
-  id                  String        @id @default(uuid())
+  id                  String         @id @default(uuid())
   content             String
-  type                PostType      @default(TEXT)
+  type                PostType       @default(TEXT)
   mediaUrl            String?
-  isPublic            Boolean       @default(true)
+  isPublic            Boolean        @default(true)
   authorId            String
   sentiment           SentimentType?
   sentimentConfidence Float?
   sentimentScores     Json?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
   comments            Comment[]
-  author              User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author              User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
   reactions           Reaction[]
 
   @@index([isPublic, createdAt(sort: Desc)])
@@ -101,7 +102,7 @@ model Post {
 }
 
 model Comment {
-  id                  String        @id @default(uuid())
+  id                  String         @id @default(uuid())
   content             String
   postId              String
   authorId            String
@@ -109,12 +110,12 @@ model Comment {
   sentiment           SentimentType?
   sentimentConfidence Float?
   sentimentScores     Json?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  author              User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  parent              Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies             Comment[]     @relation("CommentReplies")
-  post                Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  author              User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent              Comment?       @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies             Comment[]      @relation("CommentReplies")
+  post                Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
   reactions           Reaction[]
 
   @@index([sentiment])
@@ -270,10 +271,10 @@ model Call {
   createdAt       DateTime             @default(now())
   initiatorId     String
   // LiveKit fields (NEW)
-  roomName        String?              // LiveKit room name (e.g., "call_{callId}")
-  livekitRoomId   String?              // LiveKit room SID
+  roomName        String? // LiveKit room name (e.g., "call_{callId}")
+  livekitRoomId   String? // LiveKit room SID
   // Deprecated WebRTC fields (kept for backward compatibility)
-  iceServers      Json?                // DEPRECATED: ICE servers config (not needed with LiveKit)
+  iceServers      Json? // DEPRECATED: ICE servers config (not needed with LiveKit)
   metadata        Json?
   updatedAt       DateTime             @default(now()) @updatedAt
   participants    CallParticipant[]
@@ -310,23 +311,23 @@ model CallParticipant {
 }
 
 model CallTranscript {
-  id           String   @id @default(uuid())
-  callId       String
-  language     String?
-  transcript   String   @db.Text
-  confidence   Float?
-  createdAt    DateTime @default(now())
-  speakerId    String?
-  timestamp    DateTime @default(now())
+  id         String         @id @default(uuid())
+  callId     String
+  language   String?
+  transcript String         @db.Text
+  confidence Float?
+  createdAt  DateTime       @default(now())
+  speakerId  String?
+  timestamp  DateTime       @default(now())
   // Realtime transcription fields
-  isFinal      Boolean  @default(false)  // Whether this is a final transcript or interim
-  segmentId    String?                   // Segment ID for grouping related transcripts
-  startTime    Float?                    // Audio start time in seconds
-  endTime      Float?                    // Audio end time in seconds
-  words        Json?                     // Individual words with timestamps
-  sentiment    SentimentType?            // Optional sentiment analysis
-  call         Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
-  speaker      User?    @relation("CallTranscriptSpeaker", fields: [speakerId], references: [id], onDelete: Cascade)
+  isFinal    Boolean        @default(false) // Whether this is a final transcript or interim
+  segmentId  String? // Segment ID for grouping related transcripts
+  startTime  Float? // Audio start time in seconds
+  endTime    Float? // Audio end time in seconds
+  words      Json? // Individual words with timestamps
+  sentiment  SentimentType? // Optional sentiment analysis
+  call       Call           @relation(fields: [callId], references: [id], onDelete: Cascade)
+  speaker    User?          @relation("CallTranscriptSpeaker", fields: [speakerId], references: [id], onDelete: Cascade)
 
   @@index([callId, createdAt])
   @@index([callId, isFinal, timestamp])
