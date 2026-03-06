@@ -68,9 +68,46 @@ const initiateCall = async (req, res, next) => {
          },
       });
 
-      // if (activeCall) {
-      //    throw new ValidationError('There is already an active call in this conversation');
-      // }
+      if (activeCall) {
+         throw new ValidationError('There is already an active call in this conversation');
+      }
+
+      // Check if initiator is already in another active call
+      const initiatorActiveCall = await prisma.callParticipant.findFirst({
+         where: {
+            userId: initiatorId,
+            status: { in: ['INVITED', 'JOINED'] },
+            call: { status: { in: ['RINGING', 'ONGOING'] } },
+         },
+      });
+
+      if (initiatorActiveCall) {
+         throw new ValidationError('You are already in another call');
+      }
+
+      // Check if any receiver is already in an active call (busy)
+      const otherParticipantIds = conversation.participants
+         .filter((p) => p.userId !== initiatorId)
+         .map((p) => p.userId);
+
+      if (otherParticipantIds.length > 0) {
+         const busyParticipant = await prisma.callParticipant.findFirst({
+            where: {
+               userId: { in: otherParticipantIds },
+               status: { in: ['INVITED', 'JOINED'] },
+               call: { status: { in: ['RINGING', 'ONGOING'] } },
+            },
+            include: {
+               user: {
+                  select: { id: true, displayName: true },
+               },
+            },
+         });
+
+         if (busyParticipant) {
+            throw new ValidationError(`${busyParticipant.user.displayName || 'User'} is currently in another call`);
+         }
+      }
 
       // Create call
       const call = await prisma.call.create({
@@ -318,11 +355,14 @@ const endCall = async (req, res, next) => {
          duration = Math.floor((new Date() - new Date(call.startedAt)) / 1000);
       }
 
-      // Update call status to ended
+      // If caller hangs up during RINGING, mark as MISSED
+      const finalStatus = call.status === 'RINGING' ? 'MISSED' : 'ENDED';
+
+      // Update call status
       const updatedCall = await prisma.call.update({
          where: { id: callId },
          data: {
-            status: 'ENDED',
+            status: finalStatus,
             endedAt: new Date(),
             duration: duration,
          },
@@ -350,7 +390,7 @@ const endCall = async (req, res, next) => {
          id: call.id,
          conversationId: call.conversation.id,
          type: call.type,
-         status: 'ENDED',
+         status: finalStatus,
          duration: duration,
          startedAt: call.startedAt,
          endedAt: new Date(),
@@ -1022,7 +1062,7 @@ const handleUserDisconnectFromCall = async (userId) => {
             },
          });
 
-         // Check if this was the last active participant
+         // Check remaining active participants
          const remainingActiveParticipants = await prisma.callParticipant.count({
             where: {
                callId: call.id,
@@ -1032,14 +1072,27 @@ const handleUserDisconnectFromCall = async (userId) => {
             },
          });
 
-         // If no one left, end the call and create history message
-         if (remainingActiveParticipants === 0) {
+         // For 1:1 calls: end when only 1 or 0 participants remain
+         // (one person alone in a call should auto-end)
+         if (remainingActiveParticipants <= 1) {
             const finalStatus = call.status === 'RINGING' ? 'MISSED' : 'ENDED';
             let duration = null;
 
             if (call.status === 'ONGOING' && call.startedAt) {
                duration = Math.floor((new Date() - new Date(call.startedAt)) / 1000);
             }
+
+            // Mark remaining participants as LEFT
+            await prisma.callParticipant.updateMany({
+               where: {
+                  callId: call.id,
+                  status: { in: ['INVITED', 'JOINED'] },
+               },
+               data: {
+                  status: 'LEFT',
+                  leftAt: new Date(),
+               },
+            });
 
             await prisma.call.update({
                where: { id: call.id },
@@ -1053,6 +1106,13 @@ const handleUserDisconnectFromCall = async (userId) => {
             // Clear all timeouts when call ends
             webrtcService.clearCallTimeouts(call.id);
 
+            // Clear LiveKit resources
+            try {
+               await livekitService.handleCallEnd(call.id);
+            } catch (err) {
+               console.error('Error clearing LiveKit resources on disconnect:', err);
+            }
+
             // Create call history message
             await createCallHistoryMessage({
                id: call.id,
@@ -1065,18 +1125,30 @@ const handleUserDisconnectFromCall = async (userId) => {
                initiator: call.initiator,
                participants: call.participants,
             });
-
          }
 
-         // Emit disconnect event
+         // Emit events to notify remaining participants
          const io = global.io;
          if (io) {
+            // Always emit disconnect event
             io.to(`conversation_${call.conversation.id}`).emit('call:participant_disconnected', {
                callId: call.id,
                userId,
                remainingParticipants: remainingActiveParticipants,
                timestamp: new Date(),
             });
+
+            // If call ended, emit call:ended so remaining user's UI closes
+            if (remainingActiveParticipants <= 1) {
+               const payload = {
+                  callId: call.id,
+                  endedBy: userId,
+                  reason: 'participant_left',
+                  call: { id: call.id, status: call.status === 'RINGING' ? 'MISSED' : 'ENDED' },
+               };
+               io.to(`conversation_${call.conversation.id}`).emit('call:ended', payload);
+               io.to(`conversation_${call.conversation.id}`).emit('call:end', payload);
+            }
          }
       }
    } catch (error) {

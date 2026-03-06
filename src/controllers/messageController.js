@@ -8,11 +8,14 @@ const { NotFoundError, ValidationError, HTTP_STATUS } = require('../constants/er
 const callHistoryCreated = new Set();
 
 // Clean up old entries periodically (every 5 minutes)
-setInterval(() => {
-   if (callHistoryCreated.size > 1000) {
-      callHistoryCreated.clear();
-   }
-}, 5 * 60 * 1000);
+setInterval(
+   () => {
+      if (callHistoryCreated.size > 1000) {
+         callHistoryCreated.clear();
+      }
+   },
+   5 * 60 * 1000,
+);
 
 /**
  * Create a system message for call history
@@ -537,7 +540,7 @@ const getConversations = async (req, res, next) => {
                      ? conversation.participants.find((p) => p.userId !== userId)?.user
                      : null,
             };
-         })
+         }),
       );
 
       const { items, pagination } = processPaginatedResults(transformedConversations, paginationConfig);
@@ -817,7 +820,7 @@ const getMessages = async (req, res, next) => {
             // lastReadMessageId: currentParticipant?.lastReadMessageId,
             // lastReadAt: currentParticipant?.lastReadAt,
          },
-         pagination
+         pagination,
       );
    } catch (error) {
       console.error('Get messages error:', error);
@@ -920,7 +923,7 @@ const reactToMessage = async (req, res, next) => {
       return successResponse(
          res,
          { reaction },
-         reaction ? 'Reaction added successfully' : 'Reaction removed successfully'
+         reaction ? 'Reaction added successfully' : 'Reaction removed successfully',
       );
    } catch (error) {
       console.error('React to message error:', error);
@@ -1024,8 +1027,8 @@ const markConversationAsRead = async (req, res, next) => {
                   },
                   update: { readAt: new Date() },
                   create: data,
-               })
-            )
+               }),
+            ),
          );
       }
 
@@ -1082,7 +1085,7 @@ const getUnreadMessagesCount = async (req, res, next) => {
             lastReadMessageId: participant.lastReadMessageId,
             lastReadAt: participant.lastReadAt,
          },
-         'Unread count retrieved successfully'
+         'Unread count retrieved successfully',
       );
    } catch (error) {
       console.error('Get unread count error:', error);
@@ -1128,7 +1131,7 @@ const getAllUnreadCounts = async (req, res, next) => {
                lastReadMessageId: conv.lastReadMessageId,
                lastReadAt: conv.lastReadAt,
             };
-         })
+         }),
       );
 
       // Calculate total unread count
@@ -1140,7 +1143,7 @@ const getAllUnreadCounts = async (req, res, next) => {
             totalUnreadCount,
             conversations: unreadCounts,
          },
-         'All unread counts retrieved successfully'
+         'All unread counts retrieved successfully',
       );
    } catch (error) {
       console.error('Get all unread counts error:', error);
@@ -1239,6 +1242,132 @@ const uploadAttachment = async (req, res, next) => {
    }
 };
 
+/**
+ * Edit a message
+ */
+const editMessage = async (req, res, next) => {
+   try {
+      const { messageId } = req.params;
+      const { content } = req.body;
+      const userId = req.user.id;
+
+      if (!content?.trim()) {
+         throw new ValidationError('Message content is required');
+      }
+
+      const message = await prisma.message.findUnique({
+         where: { id: messageId },
+      });
+
+      if (!message) {
+         throw new NotFoundError('Message not found');
+      }
+
+      if (message.senderId !== userId) {
+         throw new ValidationError('You can only edit your own messages');
+      }
+
+      if (message.type !== 'TEXT') {
+         throw new ValidationError('Only text messages can be edited');
+      }
+
+      const updatedMessage = await prisma.message.update({
+         where: { id: messageId },
+         data: {
+            content: content.trim(),
+            isEdited: true,
+            editedAt: new Date(),
+         },
+         include: {
+            sender: {
+               select: {
+                  id: true,
+                  username: true,
+                  displayName: true,
+                  avatar: true,
+               },
+            },
+            parent: message.parentId
+               ? {
+                    include: {
+                       sender: {
+                          select: {
+                             id: true,
+                             username: true,
+                             displayName: true,
+                          },
+                       },
+                    },
+                 }
+               : false,
+            attachments: true,
+            reactions: {
+               include: {
+                  user: {
+                     select: {
+                        id: true,
+                        username: true,
+                        displayName: true,
+                     },
+                  },
+               },
+            },
+         },
+      });
+
+      // Emit to socket for real-time updates
+      const io = req.app.get('socketio');
+      if (io) {
+         io.to(`conversation_${message.conversationId}`).emit('message:updated', updatedMessage);
+      }
+
+      return successResponse(res, { message: updatedMessage }, 'Message edited successfully');
+   } catch (error) {
+      console.error('Edit message error:', error);
+      next(error);
+   }
+};
+
+/**
+ * Delete a message
+ */
+const deleteMessage = async (req, res, next) => {
+   try {
+      const { messageId } = req.params;
+      const userId = req.user.id;
+
+      const message = await prisma.message.findUnique({
+         where: { id: messageId },
+      });
+
+      if (!message) {
+         throw new NotFoundError('Message not found');
+      }
+
+      if (message.senderId !== userId) {
+         throw new ValidationError('You can only delete your own messages');
+      }
+
+      await prisma.message.delete({
+         where: { id: messageId },
+      });
+
+      // Emit to socket for real-time updates
+      const io = req.app.get('socketio');
+      if (io) {
+         io.to(`conversation_${message.conversationId}`).emit('message:deleted', {
+            id: messageId,
+            conversationId: message.conversationId,
+         });
+      }
+
+      return successResponse(res, null, 'Message deleted successfully');
+   } catch (error) {
+      console.error('Delete message error:', error);
+      next(error);
+   }
+};
+
 module.exports = {
    getOrCreateDirectConversation,
    createGroupConversation,
@@ -1252,4 +1381,6 @@ module.exports = {
    getUnreadMessagesCount,
    getAllUnreadCounts,
    createCallHistoryMessage,
+   editMessage,
+   deleteMessage,
 };

@@ -15,6 +15,8 @@ const {
    markConversationAsRead,
    getUnreadMessagesCount,
    getAllUnreadCounts,
+   editMessage,
+   deleteMessage,
 } = require('../controllers/messageController');
 
 // Conversation routes
@@ -30,6 +32,8 @@ router.post('/:conversationId/messages', authenticate, sendMessage);
 // Message interaction routes
 router.post('/messages/:messageId/react', authenticate, reactToMessage);
 router.post('/messages/:messageId/attachments', authenticate, uploadMiddleware.single('file'), uploadAttachment);
+router.put('/messages/:messageId', authenticate, editMessage);
+router.delete('/messages/:messageId', authenticate, deleteMessage);
 
 // Read status routes
 router.post('/:conversationId/read', authenticate, markConversationAsRead);

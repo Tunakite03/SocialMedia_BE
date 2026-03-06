@@ -438,6 +438,96 @@ const handleMessaging = (socket, io) => {
       });
    });
 
+   // Edit message via socket
+   socket.on('message:edit', async (data) => {
+      try {
+         const { messageId, content } = data;
+
+         if (!content?.trim()) {
+            socket.emit('message:error', { error: 'Message content is required' });
+            return;
+         }
+
+         const message = await prisma.message.findUnique({
+            where: { id: messageId },
+         });
+
+         if (!message || message.senderId !== socket.userId) {
+            socket.emit('message:error', { error: 'Message not found or access denied' });
+            return;
+         }
+
+         if (message.type !== 'TEXT') {
+            socket.emit('message:error', { error: 'Only text messages can be edited' });
+            return;
+         }
+
+         const updatedMessage = await prisma.message.update({
+            where: { id: messageId },
+            data: {
+               content: content.trim(),
+               isEdited: true,
+               editedAt: new Date(),
+            },
+            include: {
+               sender: {
+                  select: { id: true, username: true, displayName: true, avatar: true },
+               },
+               parent: message.parentId
+                  ? {
+                       include: {
+                          sender: {
+                             select: { id: true, username: true, displayName: true },
+                          },
+                       },
+                    }
+                  : false,
+               attachments: true,
+               reactions: {
+                  include: {
+                     user: {
+                        select: { id: true, username: true, displayName: true },
+                     },
+                  },
+               },
+            },
+         });
+
+         io.to(`conversation_${message.conversationId}`).emit('message:updated', updatedMessage);
+      } catch (error) {
+         console.error('Error editing message:', error);
+         socket.emit('message:error', { error: 'Failed to edit message' });
+      }
+   });
+
+   // Delete message via socket
+   socket.on('message:delete', async (data) => {
+      try {
+         const { messageId } = data;
+
+         const message = await prisma.message.findUnique({
+            where: { id: messageId },
+         });
+
+         if (!message || message.senderId !== socket.userId) {
+            socket.emit('message:error', { error: 'Message not found or access denied' });
+            return;
+         }
+
+         await prisma.message.delete({
+            where: { id: messageId },
+         });
+
+         io.to(`conversation_${message.conversationId}`).emit('message:deleted', {
+            id: messageId,
+            conversationId: message.conversationId,
+         });
+      } catch (error) {
+         console.error('Error deleting message:', error);
+         socket.emit('message:error', { error: 'Failed to delete message' });
+      }
+   });
+
    // Optimized batch read with intelligent debouncing and caching
    const readOperationCache = new Map(); // Cache for recent read operations
    const pendingReads = new Map(); // Pending read operations for batching
